@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets
+.env
+
+# Course materials we do not redistribute (instructor's handout, slides)
+docs/course/
+
+# Training outputs and caches
+runs/
+checkpoints/
+wandb/
+outputs/
+*.safetensors
+*.bin
+*.pt
+slurm-*.out
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

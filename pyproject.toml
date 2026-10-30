@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ask-me-nothing"
+version = "0.1.0"
+description = "BrokerDesk simulator and multi-turn RL for data-minimal clarification in financial agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Greyson" },
+  { name = "Michael Incorvaia" },
+  { name = "Heeba" },
+  { name = "Canting" },
+]
+dependencies = [
+  "numpy>=1.26",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+# Pin exact versions with `uv lock` once the RL library is chosen.
+train = [
+  "torch>=2.4",
+  "transformers>=4.46",
+  "peft>=0.13",
+  "datasets>=3.0",
+  "vllm>=0.6",
+]
+api = [
+  "python-dotenv>=1.0",
+  "openai>=1.50",
+  "anthropic>=0.40",
+]
+
+[tool.setuptools.packages.find]
+include = ["brokerdesk*", "training*", "baselines*", "eval*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
