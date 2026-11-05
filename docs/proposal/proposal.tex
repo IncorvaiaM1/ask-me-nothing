@@ -1,0 +1,94 @@
+\documentclass[11pt]{article}
+\usepackage[final]{acl}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{xurl}
+\setlist{nosep,leftmargin=1.2em}
+
+\title{Ask Me Nothing: Learning Need-to-Know Clarification \\ for Financial Agents with Multi-Turn RL}
+
+\author{Greyson McReynolds \quad Michael Incorvaia \\ Heeba Merchant \quad Canting Zhu \\
+  Georgia Institute of Technology \\
+  ECE 6256 / CS 6604 Conversational AI, Fall 2026 \quad Project proposal}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{Anchored in:} L3 (Dialogue as a POMDP), L10 (Post-Training), L12 (Evaluation and User Simulation), L15 (Reasoning and Test-Time Compute), L16 (Agents, Tool Use, and Agentic RL).
+
+\section{Problem and Why It Is Open}
+
+In financial dialogue every clarifying question is also a request for client data. A brokerage agent that asks by habit wastes the client's time, loses money while prices move, and collects sensitive information it never needed; one that never asks guesses at goals it cannot see. Regulation pulls in both directions: FINRA Rule 2111 requires a broker to use reasonable diligence to ascertain a customer's investment profile \citep{finra-2111}, while the SEC's 2024 amendments to Regulation~S-P raise the cost of holding customer information that is later exposed \citep{finra-2024-regsp}. The agent should therefore ask \emph{exactly} what it needs to know: look up or derive what it can, ask what the rules require or only the client knows, and pass nothing on.
+
+\textbf{Closest prior work.} Work on clarification mostly targets \emph{under}-asking. UserBench finds that frontier agents uncover fewer than 30\% of user preferences through interaction \citep{qian-2025-userbench}; \citet{edwards-2026-askorassume} study when coding agents should ask; CollabLLM trains models with a multiturn-aware reward to ask more \citep{wu-2025-collabllm}, using a GPT-4o-mini user simulator in the training loop, no tools, no policy constraints, and mostly proxy outcomes. $\tau$-bench has the structure we need (hidden user goal, policy document, end-state check) but is an evaluation benchmark, not a training environment \citep{yao-2025-taubench}. On privacy, AirGapAgent minimizes data with a separate prompted minimizer and no training \citep{bagdasarian-2024-airgap}; AgentDAM measures data minimization in web agents, where a privacy prompt costs utility and training is left to future work \citep{zharmagambetov-2025-agentdam}; AgentRaft detects data over-exposure across tool calls \citep{lin-2026-agentraft}; PrivacyLens tests privacy-norm awareness of agent actions \citep{shao-2024-privacylens}; AgentDojo measures prompt injection \citep{debenedetti-2024-agentdojo}.
+
+\textbf{The gap.} No prior work \emph{trains} the ask, look-up, think, or act decision with RL in a policy-constrained, tool-using dialogue whose outcome is checked exactly, nor treats each question as a priced data request so that clarification and data minimization are learned as one behavior.
+
+\section{Research Questions}
+
+\begin{itemize}
+  \item \textbf{RQ1.} Can multi-turn GRPO \citep{shao-2024-deepseekmath} teach a small model when to ask, look up, think, or act? \emph{H1:} it beats the same model prompted and SFT-distilled from a frontier model on success, pass\textsuperscript{$k$}, and dollars lost. \emph{Refuted if} it does not beat distillation, or gains come with more policy violations.
+  \item \textbf{RQ2.} Does pricing sensitive data teach data minimization? \emph{H2:} fewer requests for unneeded sensitive fields and fewer leaks, with no drop in success. \emph{Refuted if} over-collection falls only because mandatory profile items are skipped or more tasks fail.
+  \item \textbf{RQ3.} What did training change? \emph{H3:} gains decompose into fewer redundant questions, retained mandatory ones, and reasoning spent on the turns that need it, not one shortcut such as never asking.
+  \item \textbf{RQ4.} Does the policy hold up off distribution? \emph{H4:} it transfers from the scripted training client to LLM-simulated clients and resists injected requests for other clients' data.
+\end{itemize}
+
+\section{Method and System}
+
+\textbf{BrokerDesk.} We build a simulated brokerage desk. The agent calls tools to read positions, profiles, and quotes, run risk checks, place orders, and ask the client, plus third-party tools (counterparty messages, research requests) that create outbound leak opportunities. A policy document sets position limits, a restricted list, order-size and margin rules; prices move between turns. Tasks (rebalance, hedge, raise cash, tax-aware trim) are generated with every needed fact labeled by where it lives: \emph{derivable}, \emph{on file}, \emph{mandatory} to ask, \emph{client-only}, or \emph{irrelevant}. Every question can thus be scored as needed or unneeded. Each client field has a sensitivity tier (low, sensitive, restricted), and every synthetic value carries a unique canary string, so a leak is an exact string match in the transcript or tool arguments, with no LLM judge.
+
+\textbf{Reward.} For an episode with $n_q$ questions, unneeded fields $U$, $n_v$ policy violations and $n_\ell$ leaks,
+\begin{align*}
+R = \;&\mathbf{1}[\text{goal met}] - \lambda_q n_q \\
+&- \textstyle\sum_{f\in U}\lambda_{\mathrm{tier}(f)} - \lambda_v n_v - \lambda_\ell n_\ell .
+\end{align*}
+
+\textbf{Training.} GRPO with LoRA on Qwen3-1.7B (Qwen3-0.6B for smoke tests, Qwen3-4B if compute allows), whose switchable thinking mode supports the thinking ablation. Training uses a fast, deterministic scripted client that answers truthfully from the hidden goal, with a curriculum from fully specified to underspecified tasks.
+
+\section{Data, Baselines, and Evaluation}
+
+\textbf{Data.} All clients, portfolios, and tasks are synthetic and generated with fixed seeds: about 300 training and 100 held-out tasks. No human subjects and no real customer data.
+
+\textbf{Baselines} (none designed to lose): (i) the same model with a privacy-aware prompt; (ii) the same model SFT-distilled from filtered frontier-model trajectories; (iii) a prompted frontier model as a ceiling; (iv) an AirGapAgent-style minimizer in front of (i).
+
+\textbf{Metrics.} Success and pass\textsuperscript{$k$} \citep{yao-2025-taubench}; dollars lost; turns; needed vs.\ unneeded questions; missed mandatory items; over-collection by tier; leak rate; injection success rate.
+
+\textbf{Multi-turn evaluation.} Every score is computed over whole episodes from the final portfolio state and the full transcript. Held-out tasks are run against the scripted client, LLM-simulated clients, and noisy variants (terse, verbose, once mistaken, pushy), with injected data requests in tool outputs. We report 3 seeds with 95\% confidence intervals, broken down by client type and information class. \textbf{Ablations:} privacy cost off; question cost off; thinking off, on, or per turn; look-up tools removed.
+
+\section{Compute Plan}
+
+Training needs one A100/H100-class GPU on PACE-ICE, where the team already runs GPU jobs for course assignments. Our estimate: about 5 to 10 GPU-hours per GRPO run at 1.7B, so 3 seeds of the main run plus 3 ablations is roughly 50 to 100 GPU-hours. Prompted baselines, distillation data, and LLM clients use API calls with a capped budget we report in the paper.
+
+\section{Risks and Fallback}
+
+\textbf{No learning signal} (checked on a 0.6B run by Nov 15): easier curriculum and denser shaping. \textbf{Reward hacking} (never asking or never acting): detected by ask rates on fully specified tasks and penalized. \textbf{Privacy--success trade-off}: we report the Pareto frontier across $\lambda_{\mathrm{tier}}$ settings as a finding. \textbf{Limited GPUs}: drop to 0.6B and fewer ablations. \textbf{Fallback that still yields a paper:} BrokerDesk plus an API-only study of how frontier and prompted models price questions and leak data (RQ2 to RQ4 without training), which is a complete contribution if RL underperforms.
+
+\section{Division of Labor}
+
+\begin{center}\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Member} & \textbf{Workstream} \\
+\midrule
+Greyson & BrokerDesk environment, tools, policy checker \\
+Heeba & Clients, task generator, privacy tiers, leak checks \\
+Michael & GRPO training on PACE-ICE, ablations \\
+Canting & Baselines, evaluation, paper drafting \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Everyone reviews results and writes. Minimal BrokerDesk runs end to end by Nov 9; first RL result and baselines by the Nov 19 milestone; main runs and ablations by Dec 2. Code: \url{https://github.com/IncorvaiaM1/ask-me-nothing}.
+
+\section*{AI Use}
+Following ACL's policy on generative assistance, we disclose that we used Claude for literature search, brainstorming (including model-suggested ideas that we evaluated and adopted), and drafting help; all authors checked every claim and citation.
+
+\bibliography{custom}
+
+\end{document}
