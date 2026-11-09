@@ -1,27 +1,35 @@
-\begin{thebibliography}{12}
+\begin{thebibliography}{14}
 \providecommand{\natexlab}[1]{#1}
 
 \bibitem[{Bagdasarian et~al.(2024)Bagdasarian, Yi, Ghalebikesabi, Kairouz,
   Gruteser, Oh, Balle, and Ramage}]{bagdasarian-2024-airgap}
 Eugene Bagdasarian, Ren Yi, Sahra Ghalebikesabi, Peter Kairouz, Marco Gruteser,
   Sewoong Oh, Borja Balle, and Daniel Ramage. 2024.
-\newblock {AirGapAgent}: Protecting privacy-conscious conversational agents.
+\newblock \href {https://arxiv.org/abs/2405.05175} {{AirGapAgent}: Protecting
+  privacy-conscious conversational agents}.
 \newblock In \emph{Proceedings of the 2024 ACM SIGSAC Conference on Computer
   and Communications Security}.
+
+\bibitem[{Cao et~al.(2026)Cao, Wen, and Wang}]{cao-2026-coa}
+Zongwan Cao, Bingbing Wen, and Lucy~Lu Wang. 2026.
+\newblock \href {https://arxiv.org/abs/2601.16400} {Clarify or answer:
+  Reinforcement learning for agentic {VQA} with context under-specification}.
+\newblock Technical Report 2601.16400, arXiv.
 
 \bibitem[{Debenedetti et~al.(2024)Debenedetti, Zhang, Balunovi{\'c},
   Beurer-Kellner, Fischer, and Tram{\`e}r}]{debenedetti-2024-agentdojo}
 Edoardo Debenedetti, Jie Zhang, Mislav Balunovi{\'c}, Luca Beurer-Kellner, Marc
   Fischer, and Florian Tram{\`e}r. 2024.
-\newblock {AgentDojo}: A dynamic environment to evaluate prompt injection
-  attacks and defenses for {LLM} agents.
+\newblock \href {https://arxiv.org/abs/2406.13352} {{AgentDojo}: A dynamic
+  environment to evaluate prompt injection attacks and defenses for {LLM}
+  agents}.
 \newblock In \emph{Advances in Neural Information Processing Systems, Datasets
   and Benchmarks Track}.
 
 \bibitem[{Edwards and Schuster(2026)}]{edwards-2026-askorassume}
 Nicholas Edwards and Sebastian Schuster. 2026.
-\newblock {Ask or Assume? Uncertainty-Aware Clarification-Seeking in Coding
-  Agents}.
+\newblock \href {https://arxiv.org/abs/2603.26233} {{Ask or Assume?
+  Uncertainty-Aware Clarification-Seeking in Coding Agents}}.
 \newblock Technical Report 2603.26233, arXiv.
 
 \bibitem[{{Financial Industry Regulatory Authority}(2012)}]{finra-2111}
@@ -40,8 +48,8 @@ Nicholas Edwards and Sebastian Schuster. 2026.
   Zheng}]{lin-2026-agentraft}
 Yixi Lin, Jiangrong Wu, Yuhong Nan, Xueqiang Wang, Xinyuan Zhang, and Zibin
   Zheng. 2026.
-\newblock {AgentRaft}: Automated detection of data over-exposure in {LLM}
-  agents.
+\newblock \href {https://arxiv.org/abs/2603.07557} {{AgentRaft}: Automated
+  detection of data over-exposure in {LLM} agents}.
 \newblock Technical Report 2603.07557, arXiv.
 
 \bibitem[{Qian et~al.(2025)Qian, Liu, Prabhakar, Liu, Zhang, Chen, Ji, Yao,
@@ -49,15 +57,21 @@ Yixi Lin, Jiangrong Wu, Yuhong Nan, Xueqiang Wang, Xinyuan Zhang, and Zibin
 Cheng Qian, Zuxin Liu, Akshara Prabhakar, Zhiwei Liu, Jianguo Zhang, Haolin
   Chen, Heng Ji, Weiran Yao, Shelby Heinecke, Silvio Savarese, Caiming Xiong,
   and Huan Wang. 2025.
-\newblock {UserBench}: An interactive gym environment for user-centric agents.
-\newblock In \emph{Advances in Neural Information Processing Systems}.
+\newblock \href {https://arxiv.org/abs/2507.22034} {{UserBench}: An interactive
+  gym environment for user-centric agents}.
+\newblock Technical Report 2507.22034, arXiv.
+
+\bibitem[{{Qwen Team}(2025)}]{qwen3-model}
+{Qwen Team}. 2025.
+\newblock \href {https://huggingface.co/Qwen/Qwen3-1.7B} {{Qwen3-1.7B} model
+  card}.
 
 \bibitem[{Shao et~al.(2024{\natexlab{a}})Shao, Li, Shi, Liu, and
   Yang}]{shao-2024-privacylens}
 Yijia Shao, Tianshi Li, Weiyan Shi, Yanchen Liu, and Diyi Yang.
   2024{\natexlab{a}}.
-\newblock {PrivacyLens}: Evaluating privacy norm awareness of language models
-  in action.
+\newblock \href {https://arxiv.org/abs/2409.00138} {{PrivacyLens}: Evaluating
+  privacy norm awareness of language models in action}.
 \newblock In \emph{Advances in Neural Information Processing Systems, Datasets
   and Benchmarks Track}.
 
@@ -65,30 +79,32 @@ Yijia Shao, Tianshi Li, Weiyan Shi, Yanchen Liu, and Diyi Yang.
   Zhang, Li, Wu, and Guo}]{shao-2024-deepseekmath}
 Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei
   Zhang, Mingchuan Zhang, Y.~K. Li, Y.~Wu, and Daya Guo. 2024{\natexlab{b}}.
-\newblock {DeepSeekMath}: Pushing the limits of mathematical reasoning in open
-  language models.
+\newblock \href {https://arxiv.org/abs/2402.03300} {{DeepSeekMath}: Pushing the
+  limits of mathematical reasoning in open language models}.
 \newblock Technical Report 2402.03300, arXiv.
 
 \bibitem[{Wu et~al.(2025)Wu, Galley, Peng, Cheng, Li, Dou, Cai, Zou, Leskovec,
   and Gao}]{wu-2025-collabllm}
 Shirley Wu, Michel Galley, Baolin Peng, Hao Cheng, Gavin Li, Yao Dou, Weixin
   Cai, James Zou, Jure Leskovec, and Jianfeng Gao. 2025.
-\newblock {CollabLLM}: From passive responders to active collaborators.
+\newblock \href {https://proceedings.mlr.press/v267/wu25i.html} {{CollabLLM}:
+  From passive responders to active collaborators}.
 \newblock In \emph{Proceedings of the 42nd International Conference on Machine
   Learning}, pages 67260--67283.
 
 \bibitem[{Yao et~al.(2025)Yao, Shinn, Razavi, and
   Narasimhan}]{yao-2025-taubench}
 Shunyu Yao, Noah Shinn, Pedram Razavi, and Karthik Narasimhan. 2025.
-\newblock $\tau$-bench: A benchmark for tool-agent-user interaction in
-  real-world domains.
+\newblock \href {https://arxiv.org/abs/2406.12045} {$\tau$-bench: A benchmark
+  for tool-agent-user interaction in real-world domains}.
 \newblock In \emph{International Conference on Learning Representations}.
 
 \bibitem[{Zharmagambetov et~al.(2025)Zharmagambetov, Guo, Evtimov, Pavlova,
   Salakhutdinov, and Chaudhuri}]{zharmagambetov-2025-agentdam}
 Arman Zharmagambetov, Chuan Guo, Ivan Evtimov, Maya Pavlova, Ruslan
   Salakhutdinov, and Kamalika Chaudhuri. 2025.
-\newblock {AgentDAM}: Privacy leakage evaluation for autonomous web agents.
+\newblock \href {https://arxiv.org/abs/2503.09780} {{AgentDAM}: Privacy leakage
+  evaluation for autonomous web agents}.
 \newblock In \emph{Advances in Neural Information Processing Systems, Datasets
   and Benchmarks Track}.
 

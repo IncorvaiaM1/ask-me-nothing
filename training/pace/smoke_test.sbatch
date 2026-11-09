@@ -12,4 +12,4 @@ cd "$SLURM_SUBMIT_DIR"
 
 nvidia-smi
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
-# TODO: replace with a 0.5B GRPO step on fixed tasks once the RL library is chosen.
+# TODO: replace with a Qwen3-0.6B GRPO step on fixed tasks once the RL library is chosen.
