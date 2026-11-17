@@ -48,7 +48,7 @@ def build_agent(name: str, args, policy):
         extra = {"chat_template_kwargs": {"enable_thinking": False}} if args.no_thinking else None
         return LLMAgent(args.model, base_url=args.base_url, api_key=os.environ.get(args.api_key_env),
                         policy=policy, max_turns=args.max_turns, privacy_aware=not args.plain_prompt,
-                        temperature=args.temperature, extra_body=extra)
+                        temperature=args.temperature, max_tokens=args.max_tokens, extra_body=extra)
     raise SystemExit(f"unknown agent {name!r}; choose from {MODES + ('llm',)}")
 
 
@@ -64,6 +64,7 @@ def main(argv=None) -> dict:
     p.add_argument("--base-url", default=None)
     p.add_argument("--api-key-env", default="OPENAI_API_KEY")
     p.add_argument("--temperature", type=float, default=0.0)
+    p.add_argument("--max-tokens", type=int, default=1024, help="per-call output limit; raise it with thinking on")
     p.add_argument("--no-thinking", action="store_true", help="disable Qwen3 thinking mode (vLLM)")
     p.add_argument("--plain-prompt", action="store_true", help="drop the need-to-know prompt section")
     p.add_argument("--label", default=None, help="name for the llm run in tables and file names")

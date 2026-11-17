@@ -12,6 +12,7 @@ from eval.rollout import run_episode
 from training.collect import main as collect_main
 from training.config import REWARD_CONFIGS
 from training.masking import assistant_mask, describe_mask
+from training.sft import build_dialogues
 from training.rollouts import (collect_group, group_advantages, messages_from_transcript, read_jsonl)
 
 POLICY = default_policy()
@@ -263,3 +264,20 @@ def test_mask_rejects_inconsistent_templates_and_overlong_dialogues():
         assistant_mask(FakeTokenizer(), messages, max_length=50)
     with pytest.raises(ValueError, match="no assistant turn"):
         assistant_mask(FakeTokenizer(), messages[:2])
+
+
+# -------------------------------------------------------------------- warm start
+
+
+def test_sft_dialogues_come_from_successful_teacher_runs_only():
+    dialogues, info = build_dialogues(TASKS[:10], "always_ask", POLICY, seeds=2)
+    assert info == {"teacher": "always_ask", "attempted": 20, "kept": 20} and len(dialogues) == 20
+    asked = [json.loads(m["tool_calls"][0]["function"]["arguments"]).get("field")
+             for m in dialogues[0] if m["role"] == "assistant"
+             and m["tool_calls"][0]["function"]["name"] == "ask_client"]
+    assert "income" in asked                                   # the over-asking habit is in the data
+    assert dialogues[0][0]["role"] == "system" and dialogues[0][-2]["tool_calls"][0]["function"]["name"] == "finish"
+    kept = build_dialogues(TASKS, "never_ask", POLICY, seeds=1)[1]
+    assert 0 < kept["kept"] < kept["attempted"]                # the guesser's failures are filtered out
+    ids, mask = assistant_mask(FakeTokenizer(), dialogues[0], enable_thinking=False)
+    assert sum(mask) > 0
