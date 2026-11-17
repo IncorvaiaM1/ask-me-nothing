@@ -196,8 +196,10 @@ def test_mask_covers_exactly_the_assistant_turns(think):
     assert len(ids) == len(mask)
     trained = tok.decode([i for i, m in zip(ids, mask) if m])
     assistants = [m for m in messages if m["role"] == "assistant"]
-    expected = "".join(f"<tool_call>{json.dumps(m['tool_calls'][0]['function'])}</tool_call><|im_end|>\n"
-                       for m in assistants)
+    def fn(m):
+        f = m["tool_calls"][0]["function"]
+        return {"name": f["name"], "arguments": json.loads(f["arguments"])}   # arguments reach the template as a dict
+    expected = "".join(f"<tool_call>{json.dumps(fn(m))}</tool_call><|im_end|>\n" for m in assistants)
     assert trained == expected
     untrained = tok.decode([i for i, m in zip(ids, mask) if not m])
     assert "SYSTEM PROMPT" in untrained and "book_value" in untrained and "<tools>" in untrained
