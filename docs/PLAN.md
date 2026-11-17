@@ -20,7 +20,7 @@ Test whether multi-turn RL with question costs and sensitivity-weighted unnecess
 | Date | Deliverable |
 | --- | --- |
 | Nov 5 | Proposal (2 pages, ACL format) |
-| Nov 9 | Minimal BrokerDesk running end to end (internal) |
+| Nov 9 | Minimal BrokerDesk running end to end (internal); landed Nov 16 |
 | Nov 19 | Milestone (4 pages, running baseline, one real result) |
 | Nov 21 | BrokerDesk v1.0 frozen (internal) |
 | Dec 2 | Poster PDF |
@@ -34,7 +34,7 @@ Test whether multi-turn RL with question costs and sensitivity-weighted unnecess
 
 ## Implementation and experiment scope
 
-- Implemented: interfaces/data classes, sensitivity tiers, deterministic canary matching, three privacy unit tests, and GPU availability script. The environment, task generation, policy checker, client replies, schemas, training, and evaluation remain stubs or plans.
+- Implemented (Nov 16): minimal BrokerDesk for the two core families: task generator and splits, scripted client, per-order policy checks, end-state checker, tool schemas, reward and metrics, scripted reference agents, prompted-baseline runner, injected tool outputs with paired clean/injected evaluation, grouped rollouts with advantages and an assistant-only token mask, 31 tests. Not implemented: LLM clients, AirGap-style minimizer, SFT, the trainer itself (library still to choose; mask and loss unverified on the real tokenizer and GPU), the goal-aware shortfall reference (shortfall is currently against arrival prices), margin lending.
 - Core tasks: cash-raising and rebalancing. Hedging and tax-aware trimming are extensions.
 - Data: approximately 300 training, 50 validation, and 100 test tasks, separating clients, seeds, and goal/portfolio combinations. No tuning on test tasks.
 - Structured field requests support deterministic scoring. Mandatory means required and still missing; information already obtained is redundant. Repeated unnecessary requests incur repeated costs.

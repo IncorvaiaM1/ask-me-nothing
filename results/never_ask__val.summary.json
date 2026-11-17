@@ -1,0 +1,54 @@
+{
+  "episodes": 50,
+  "tasks": 50,
+  "success": 0.44,
+  "success_ci95": [
+    0.3,
+    0.58
+  ],
+  "goal_met": 0.44,
+  "reward": 0.14,
+  "violations_per_ep": 0.3,
+  "questions_per_ep": 0.0,
+  "needed_questions_per_ep": 0.0,
+  "unneeded_questions_per_ep": 0.0,
+  "missed_mandatory_rate": 0.3,
+  "missed_client_only_rate": 0.3,
+  "unneeded_requests_per_ep_by_tier": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "leak_rate": 0.0,
+  "timeout_rate": 0.0,
+  "invalid_calls_per_ep": 0.0,
+  "turns_per_ep": 4.32,
+  "dollars_lost_per_ep": -17.10840000000001,
+  "success_by_family": {
+    "raise_cash": 0.48,
+    "rebalance": 0.4
+  },
+  "success_by_specification": {
+    "fully_specified": 1.0,
+    "underspecified": 0.06666666666666667
+  },
+  "pass^1": 0.44,
+  "agent": "never_ask",
+  "split": "val",
+  "config": {
+    "split": "val",
+    "n": null,
+    "rollouts": 1,
+    "seed": 0,
+    "max_turns": 12,
+    "model": null,
+    "base_url": null,
+    "api_key_env": "OPENAI_API_KEY",
+    "temperature": 0.0,
+    "no_thinking": false,
+    "plain_prompt": false,
+    "label": null,
+    "injection": "paired",
+    "out": "results"
+  }
+}
