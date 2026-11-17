@@ -21,6 +21,32 @@ empty think block that the template does not write back into past assistant turn
 
 from __future__ import annotations
 
+import json
+
+
+def normalize_tool_calls(messages: list[dict]) -> list[dict]:
+    """Copy of ``messages`` with tool-call arguments as dicts.
+
+    The OpenAI wire format carries arguments as a JSON string; Hugging Face chat
+    templates (Qwen3's included) expect a dict and would otherwise quote it twice.
+    Arguments that are not valid JSON (a malformed model output) are left as text.
+    """
+    out = []
+    for m in messages:
+        if m.get("tool_calls"):
+            calls = []
+            for call in m["tool_calls"]:
+                fn = dict(call["function"])
+                if isinstance(fn.get("arguments"), str):
+                    try:
+                        fn["arguments"] = json.loads(fn["arguments"])
+                    except json.JSONDecodeError:
+                        pass
+                calls.append({**call, "function": fn})
+            m = {**m, "tool_calls": calls}
+        out.append(m)
+    return out
+
 
 def _render(tokenizer, messages, tools, add_generation_prompt: bool, template_kwargs: dict) -> list[int]:
     out = tokenizer.apply_chat_template(messages, tools=tools, tokenize=True,
@@ -47,6 +73,7 @@ def assistant_mask(tokenizer, messages: list[dict], tools: list[dict] | None = N
     the dialogue is longer than ``max_length`` (truncating would cut assistant turns
     out of a trajectory whose reward depends on them, so the caller should drop it).
     """
+    messages = normalize_tool_calls(messages)
     while messages and messages[-1]["role"] != "assistant":
         messages = messages[:-1]                           # trailing tool output is never trained on
     input_ids = _render(tokenizer, messages, tools, False, template_kwargs)
