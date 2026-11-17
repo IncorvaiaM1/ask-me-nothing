@@ -17,7 +17,7 @@ from brokerdesk.policy import default_policy
 from brokerdesk.tasks import load_split
 from brokerdesk.tools import openai_tools
 from eval.rollout import run_episode
-from training.masking import assistant_mask, describe_mask
+from training.masking import _render, assistant_mask, describe_mask
 from training.rollouts import messages_from_transcript
 
 
@@ -52,6 +52,14 @@ def main(argv=None) -> None:
             assert task.request not in trained and task.request in untrained
             assert "book_value" not in trained and "Desk policy" not in trained
             assert sum(mask) > 0 and trained.count("<|im_end|>") == len(calls), "one end-of-turn per assistant turn"
+            # Each reply must directly follow the generation prompt the model was given for that turn.
+            one = [{"role": "user", "content": "x"}]
+            kw = {"enable_thinking": thinking}
+            gen = _render(tok, one, None, True, kw)[len(_render(tok, one, None, False, kw)):]
+            for t in range(1, len(ids)):
+                if mask[t] and not mask[t - 1]:
+                    assert ids[t - len(gen):t] == gen, "reply does not follow the generation prompt"
+            assert tok.decode(ids).count("<think>") == (0 if thinking else len(calls))
             lengths.append(len(ids))
             fracs.append(sum(mask) / len(ids))
             if k == 0:

@@ -145,28 +145,50 @@ def test_collect_cli_round_trip(tmp_path):
 
 
 class FakeTokenizer:
-    """Special tags are single tokens and everything else is one token per character, with a
-    ChatML-like template. ``think`` mimics Qwen3 with
-    thinking disabled: the generation prompt ends in an empty think block that past
-    assistant turns do not contain."""
+    """Special tags are single tokens and everything else is one token per character.
 
-    def __init__(self, think=False, broken=False):
-        self.think, self.broken = think, broken
+    ``qwen=True`` copies the three quirks of the real Qwen3 chat template that matter here:
+    tool messages render as user turns holding <tool_response> blocks; an assistant turn
+    that is the last message (after the last real user message) gets an empty <think>
+    block while earlier ones do not; and with ``enable_thinking=False`` the generation
+    prompt ends in an empty <think> block. ``qwen=False`` is a plain ChatML template.
+    """
 
-    def apply_chat_template(self, messages, tools=None, tokenize=True, add_generation_prompt=False, **kw):
+    _SPECIAL = ["<|im_start|>", "<|im_end|>", "<think>", "</think>", "<tool_call>", "</tool_call>",
+                "<tool_response>", "</tool_response>"]
+
+    def __init__(self, qwen=True, broken=False):
+        self.qwen, self.broken = qwen, broken
+
+    def apply_chat_template(self, messages, tools=None, tokenize=True, add_generation_prompt=False,
+                            enable_thinking=True, **kw):
         text = f"<tools>{json.dumps(tools)}</tools>\n" if tools else ""
+        last_query = max((n for n, m in enumerate(messages) if m["role"] == "user"), default=len(messages) - 1)
         for n, m in enumerate(messages):
+            last = n == len(messages) - 1
             body = m.get("content") or ""
-            for call in m.get("tool_calls", []):
-                body += f"<tool_call>{json.dumps(call['function'])}</tool_call>"
-            if self.broken and n == len(messages) - 1 and m["role"] == "assistant":
-                body = body.upper()               # renders the last turn differently: inconsistent
+            if m["role"] == "tool":
+                if n == 0 or messages[n - 1]["role"] != "tool":
+                    text += "<|im_start|>user"
+                text += f"\n<tool_response>\n{body}\n</tool_response>"
+                if last or messages[n + 1]["role"] != "tool":
+                    text += "<|im_end|>\n"
+                continue
+            if m["role"] == "assistant":
+                if self.qwen and last and n > last_query:
+                    body = "<think>\n\n</think>\n\n" + body
+                for call in m.get("tool_calls", []):
+                    fn = call["function"]
+                    args = fn["arguments"] if isinstance(fn["arguments"], str) else json.dumps(fn["arguments"])
+                    body += '<tool_call>\n{"name": "' + fn["name"] + '", "arguments": ' + args + "}\n</tool_call>"
+                if self.broken and n < len(messages) - 2:
+                    body = body.upper()           # past turns change as the dialogue grows: inconsistent
             text += f"<|im_start|>{m['role']}\n{body}<|im_end|>\n"
         if add_generation_prompt:
-            text += "<|im_start|>assistant\n" + ("<think>\n\n</think>\n\n" if self.think else "")
+            text += "<|im_start|>assistant\n"
+            if self.qwen and enable_thinking is False:
+                text += "<think>\n\n</think>\n\n"
         return self.encode(text)
-
-    _SPECIAL = ["<|im_start|>", "<|im_end|>", "<think>", "</think>", "<tool_call>", "</tool_call>"]
 
     def encode(self, text):
         import re
@@ -188,29 +210,56 @@ def _dialogue():
     return messages_from_transcript("SYSTEM PROMPT", ep["transcript"])
 
 
-@pytest.mark.parametrize("think", [False, True])
-def test_mask_covers_exactly_the_assistant_turns(think):
-    tok = FakeTokenizer(think=think)
+def _reply(m):
+    f = m["tool_calls"][0]["function"]
+    return '<tool_call>\n{"name": "' + f["name"] + '", "arguments": ' + json.dumps(json.loads(f["arguments"])) \
+        + "}\n</tool_call><|im_end|>\n"
+
+
+@pytest.mark.parametrize("qwen,thinking", [(True, False), (True, True), (False, True)])
+def test_mask_covers_exactly_the_assistant_turns(qwen, thinking):
+    tok = FakeTokenizer(qwen=qwen)
     messages = _dialogue()
-    ids, mask = assistant_mask(tok, messages, tools=[{"name": "get_positions"}])
+    ids, mask = assistant_mask(tok, messages, tools=[{"name": "get_positions"}], enable_thinking=thinking)
     assert len(ids) == len(mask)
-    trained = tok.decode([i for i, m in zip(ids, mask) if m])
     assistants = [m for m in messages if m["role"] == "assistant"]
-    def fn(m):
-        f = m["tool_calls"][0]["function"]
-        return {"name": f["name"], "arguments": json.loads(f["arguments"])}   # arguments reach the template as a dict
-    expected = "".join(f"<tool_call>{json.dumps(fn(m))}</tool_call><|im_end|>\n" for m in assistants)
-    assert trained == expected
+    assert tok.decode([i for i, m in zip(ids, mask) if m]) == "".join(_reply(m) for m in assistants)
     untrained = tok.decode([i for i, m in zip(ids, mask) if not m])
     assert "SYSTEM PROMPT" in untrained and "book_value" in untrained and "<tools>" in untrained
     assert "place_order" not in untrained                     # every action the agent took is trained on
-    assert tok.decode(ids).rstrip().endswith("<|im_end|>")    # trailing tool output was dropped
+    assert tok.decode(ids).endswith("</tool_call><|im_end|>\n")   # trailing tool output was dropped
     assert describe_mask(tok, ids, mask).count("[[") == len(assistants)
+
+
+@pytest.mark.parametrize("qwen,thinking", [(True, False), (True, True), (False, True)])
+def test_every_reply_sits_right_after_the_prompt_the_model_was_given(qwen, thinking):
+    """The point of assembling turn by turn: the tokens before each reply are the tail of
+    the real generation prompt for that turn, empty think block included."""
+    tok = FakeTokenizer(qwen=qwen)
+    messages = _dialogue()
+    ids, mask = assistant_mask(tok, messages, enable_thinking=thinking)
+    starts = [t for t in range(len(ids)) if mask[t] and not mask[t - 1]]
+    turns = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
+    assert len(starts) == len(turns)
+    gen_prompt = tok.apply_chat_template([], add_generation_prompt=True, enable_thinking=thinking)
+    for start, i in zip(starts, turns):
+        prompt = tok.apply_chat_template(messages[:i], add_generation_prompt=True, enable_thinking=thinking)
+        assert ids[start - len(gen_prompt):start] == gen_prompt == prompt[-len(gen_prompt):]
+        # everything new since the previous reply is the tail of that prompt too
+        prev = max((t for t in range(start) if mask[t]), default=-1)
+        assert ids[prev + 1:start] == prompt[len(prompt) - (start - prev - 1):]
+    text = tok.decode(ids)
+    assert text.count("<think>") == (len(turns) if qwen and not thinking else 0)
+    if not (qwen and not thinking):                           # consistent template: plain rendering
+        plain = tok.apply_chat_template(messages[:turns[-1] + 1] + [{"role": "user", "content": "x"}])
+        assert ids == plain[:len(ids)]
 
 
 def test_mask_rejects_inconsistent_templates_and_overlong_dialogues():
     messages = _dialogue()
-    with pytest.raises(ValueError, match="prefix-consistent"):
+    with pytest.raises(ValueError, match="inconsistently"):
         assistant_mask(FakeTokenizer(broken=True), messages)
     with pytest.raises(ValueError, match="max_length"):
         assistant_mask(FakeTokenizer(), messages, max_length=50)
+    with pytest.raises(ValueError, match="no assistant turn"):
+        assistant_mask(FakeTokenizer(), messages[:2])

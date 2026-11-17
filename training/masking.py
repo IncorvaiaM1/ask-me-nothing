@@ -1,22 +1,32 @@
 """Token ids and an assistant-only loss mask for one dialogue.
 
 The policy gradient must touch only the tokens the model itself produced: not the
-system prompt, the client's messages, or tool observations. Chat templates differ,
-so instead of hard-coding one, this finds each assistant span by rendering the
-dialogue twice per assistant message with the tokenizer's own template:
+system prompt, the client's messages, or tool observations. And each of those
+tokens should sit in the context the model actually had when it produced them.
 
-    prefix = render(messages[:i], add_generation_prompt=True)
-    full   = render(messages[:i + 1])
+That second point rules out simply rendering the finished dialogue with the chat
+template. Qwen3's template is not prefix-consistent: with thinking disabled the
+generation prompt ends in an empty ``<think>`` block, the template writes that
+block only into the *last* assistant turn of a dialogue, and drops it from every
+earlier one. So the sequence is assembled turn by turn instead:
 
-The assistant's tokens are the part of ``full`` after the header it shares with
-``prefix`` (and with a rendering of an empty assistant turn, as a cross-check). That includes the end-of-turn token, so the model also learns
-when to stop.
+    for each assistant turn i:
+        prompt_i  = render(messages[:i], add_generation_prompt=True)   # what the model was shown
+        reply_i   = the tokens of turn i, taken from a rendering where it is a past turn
+        sequence += (the part of prompt_i that is new since turn i-1) + reply_i
 
-Works with any object exposing Hugging Face's ``apply_chat_template``. It has been
-tested against a stand-in tokenizer only. Check it once on the real Qwen3 tokenizer
-during the pilot (``describe_mask`` prints what is and is not trained on), in
-particular with thinking disabled: Qwen3's generation prompt then ends with an
-empty think block that the template does not write back into past assistant turns.
+The result reads exactly like inference at every point where the model had to
+predict: history as the template renders past turns, then the generation prompt,
+then the model's own tokens through the end-of-turn token. Earlier turns keep
+their generation-prompt tokens (for Qwen3 with thinking off, the empty think
+block), which at inference the template would have dropped from history; that is
+a few tokens per turn and the price of using one sequence per dialogue. For a
+template that is prefix-consistent this reduces to the plain rendering.
+
+Works with any object exposing Hugging Face's ``apply_chat_template``. Limits:
+only the final ``content`` and tool calls of each turn are trained on, so with
+thinking *enabled* the model's reasoning tokens are not in the sequence unless
+the rollout stored them; the planned runs use thinking off.
 """
 
 from __future__ import annotations
@@ -69,33 +79,48 @@ def assistant_mask(tokenizer, messages: list[dict], tools: list[dict] | None = N
                    max_length: int | None = None, **template_kwargs) -> tuple[list[int], list[int]]:
     """Return ``(input_ids, loss_mask)``; ``loss_mask[t]`` is 1 where token ``t`` was produced by the model.
 
-    Raises ``ValueError`` if the template does not render prefixes consistently, or if
-    the dialogue is longer than ``max_length`` (truncating would cut assistant turns
-    out of a trajectory whose reward depends on them, so the caller should drop it).
+    Raises ``ValueError`` if past turns do not render the same way from one prompt to
+    the next, or if the dialogue is longer than ``max_length`` (truncating would cut
+    assistant turns out of a trajectory whose reward depends on them, so the caller
+    should drop it).
     """
     messages = normalize_tool_calls(messages)
     while messages and messages[-1]["role"] != "assistant":
         messages = messages[:-1]                           # trailing tool output is never trained on
-    input_ids = _render(tokenizer, messages, tools, False, template_kwargs)
+    turns = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
+    if not turns:
+        raise ValueError("dialogue has no assistant turn")
+    dummy = {"role": "user", "content": "x"}
+
+    def past(k: int, extra: int = 1) -> list[int]:
+        """messages[:k] followed by dummy user turns, so every assistant turn renders as a past turn."""
+        return _render(tokenizer, messages[:k] + [dummy] * extra, tools, False, template_kwargs)
+
+    dummy_len = len(past(turns[0] + 1, 2)) - len(past(turns[0] + 1))
+
+    input_ids: list[int] = []
+    mask: list[int] = []
+    prev_end, prev_past = 0, []
+    for i in turns:
+        prompt = _render(tokenizer, messages[:i], tools, True, template_kwargs)
+        rendered = past(i + 1)
+        end = len(rendered) - dummy_len                    # just past this turn's end-of-turn tokens
+        # Where the model's own tokens begin: after the assistant header. Two estimates, either
+        # of which can overshoot when the reply starts with the same tokens as what follows the
+        # header in the other rendering, so take the earlier one.
+        empty = _render(tokenizer, messages[:i] + [{"role": "assistant", "content": ""}, dummy],
+                        tools, False, template_kwargs)
+        start = min(_common_prefix(prompt, rendered), _common_prefix(empty, rendered))
+        if not (prev_end <= start < end) or prompt[:prev_end] != prev_past[:prev_end] \
+                or rendered[:prev_end] != prev_past[:prev_end]:
+            raise ValueError(f"chat template renders history inconsistently at message {i}")
+        reply = rendered[start:end]
+        new_context = prompt[prev_end:]
+        input_ids += new_context + reply
+        mask += [0] * len(new_context) + [1] * len(reply)
+        prev_end, prev_past = end, rendered
     if max_length is not None and len(input_ids) > max_length:
         raise ValueError(f"dialogue is {len(input_ids)} tokens, over max_length={max_length}")
-    mask = [0] * len(input_ids)
-    for i, message in enumerate(messages):
-        if message["role"] != "assistant":
-            continue
-        prefix = _render(tokenizer, messages[:i], tools, True, template_kwargs)
-        full = _render(tokenizer, messages[: i + 1], tools, False, template_kwargs)
-        # Two estimates of where the model's own tokens begin; either can overshoot when the
-        # reply happens to start with the same tokens as what follows the header in the other
-        # rendering (an empty think block, or the end-of-turn token), so take the earlier one.
-        empty = _render(tokenizer, messages[:i] + [{"role": "assistant", "content": ""}], tools, False,
-                        template_kwargs)
-        start = min(_common_prefix(prefix, full), _common_prefix(empty, full))
-        before = _render(tokenizer, messages[:i], tools, False, template_kwargs) if i else []
-        if start < _common_prefix(before, full) or input_ids[: len(full)] != full:
-            raise ValueError(f"chat template is not prefix-consistent at message {i}")
-        for t in range(start, len(full)):
-            mask[t] = 1
     return input_ids, mask
 
 
