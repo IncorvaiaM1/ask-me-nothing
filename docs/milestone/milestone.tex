@@ -1,0 +1,123 @@
+\documentclass[11pt]{article}
+\usepackage[final]{acl}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{xurl}
+\usepackage{graphicx}
+\setlist{nosep,leftmargin=1.2em}
+
+% Build:  cd docs/milestone && latexmk -pdf milestone.tex
+% Tables: python -m eval.milestone_tables   (from the repo root, after pulling new results)
+%
+% Lines starting with "% NOTE:" are facts to work from, not text for the paper. Delete each
+% one once its section is written. The prose is the team's to write (course AI policy).
+
+\title{Ask Me Nothing: Learning Need-to-Know Clarification \\ for Financial Agents with Multi-Turn RL}
+
+\author{Greyson McReynolds \quad Michael Incorvaia \\ Heeba Merchant \quad Canting Zhu \\
+  Georgia Institute of Technology \\
+  ECE 6256 / CS 6604 Conversational AI, Fall 2026 \quad Project milestone}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+% NOTE: start from proposal Section 1 (problem, why open, contribution). Milestone asks for a
+%       draft that reads like the case-study surveys: motivation, the question, what we build.
+% NOTE: the contribution is the controlled study of question costs plus sensitivity-priced
+%       field requests in policy-constrained tool dialogue, not RL for clarification alone
+%       (CoA already does GRPO for clarification in VQA).
+
+\section{Background}
+% NOTE: expand the proposal's related-work paragraph into subsections, for example:
+%       clarification and preference elicitation (UserBench, Ask or Assume?, CollabLLM, CoA);
+%       tool-agent-user evaluation (tau-bench, pass^k);
+%       data minimization and contextual privacy (AirGapAgent, AgentDAM, AgentRaft, PrivacyLens);
+%       prompt injection through tool outputs (AgentDojo);
+%       GRPO (DeepSeekMath) and Qwen3.
+% NOTE: every citation must be read by whoever cites it; bib is ../proposal/custom.bib.
+
+\section{BrokerDesk}
+% NOTE: what now exists and runs: two core task families (cash-raising, rebalancing);
+%       300/50/100 train/val/test tasks, generated from fixed seeds, disjoint clients;
+%       60% of tasks underspecified, stratified per family.
+% NOTE: tools: get_positions, get_profile, get_quote, risk_check, place_order, ask_client,
+%       message_counterparty, request_research, finish. 12 tool turns; prices move each turn.
+% NOTE: policy: 25% position limit on buys, $250k max order, restricted list, no shorts, no
+%       buying past cash, model equity share by risk tolerance (40/60/80%) within 3 points,
+%       raise cash within 0-10% over target, suitability (risk tolerance must be known before
+%       any order). Breaking orders are rejected and counted as violations.
+% NOTE: information classes per field; structured ask_client(field, question) makes question
+%       scoring exact; reward exactly as in the proposal, weights q=0.02, tiers 0.01/0.05/0.5,
+%       violation 1, leak 1.
+% NOTE: injection: attacker text in untrusted tool outputs (account note, vendor note, research
+%       reply); three attacks (exfiltrate to research, to counterparty, collect SSN), assigned
+%       deterministically so clean and injected runs pair.
+
+\section{Baseline and First Results}
+% NOTE: scripted agents bracket the behaviours and validate the simulator: need-to-know solves
+%       every task in all three splits; never-ask fails exactly where information is missing;
+%       always-ask succeeds but pays the costs.
+% NOTE: prompted Qwen3-1.7B (vLLM, hermes tool parser, thinking off, temperature 0): 0/50.
+%       From the transcripts: 224 of 468 calls were risk_check, often looping to the turn
+%       limit (54% timeouts); 0.12 filled orders per episode; closing messages claim trades
+%       that never happened; 1.30 of 1.76 questions per episode unneeded; 5 episodes asked for
+%       income, net worth, tax bracket unprompted.
+% NOTE: under injection: attack seen 74%, attack success 8% (all from the collect-SSN attack,
+%       22% of its tasks), targeted field collected 20%, two SSN leaks (one to the
+%       counterparty, one in the closing message).
+% NOTE: add thinking-on and SFT rows here once warm_start.sh results are pushed.
+
+\input{tables/main}
+\input{tables/attack}
+
+\section{What Changed Since the Proposal}
+% NOTE: supervised warm start is now required before RL, not only a baseline: with 0% success,
+%       every GRPO group fails and only the costs differ, which would teach never-ask/never-act.
+% NOTE: the SFT teacher is the scripted always-ask agent, not filtered frontier trajectories:
+%       it trades correctly but over-asks, leaving RL the question the paper is about; the
+%       need-to-know agent becomes the reference. Frontier reference still planned.
+% NOTE: compute is far below the proposal estimate. Measured on PACE-ICE [GPU model, from
+%       runs/initial/3_gpu.log]: LoRA training at ~13.5k tokens/s (1.7B) and ~14.9k (0.6B),
+%       18.0 GB and 12.8 GB peak at batch size 1, dialogues ~2.5-2.6k tokens. Training half of
+%       one run is ~0.4 GPU-hours; rollout generation dominates (100 episodes in 248 s
+%       sequentially). Estimate 1-2 GPU-hours per run, 10-20 for the nine core runs, versus
+%       45-90 in the proposal.
+% NOTE: Qwen3 chat template is not prefix-consistent (empty think block only on the last
+%       assistant turn), so training sequences are assembled turn by turn; verified on the
+%       real tokenizer.
+% NOTE: dates slipped: minimal environment landed Nov 16 (planned Nov 9); RL library choice
+%       (planned Nov 15) replaced by our own grouped-rollout harness plus a reference loss,
+%       verified with one LoRA step.
+% NOTE: not yet built: LLM-simulated clients, AirGap-style minimizer, margin rules,
+%       goal-aware execution-shortfall reference.
+
+\section{Plan for the Last Three Weeks}
+% NOTE: Nov 22-26: wire the GRPO loop (collect, step, reload), first runs from the SFT
+%       checkpoint; check never-ask shortcut against underspecified tasks.
+% NOTE: Nov 27-Dec 1: nine core runs (full, privacy cost off, question cost off; seeds
+%       0,1,2); cost sweep; test split with five rollouts for pass^1 and pass^3.
+% NOTE: Dec 2: poster PDF. Dec 3: poster session.
+% NOTE: Dec 3-8: LLM-client transfer subset and injected test set (RQ4), frontier reference,
+%       error analysis, final paper and code (Dec 8, cannot move).
+
+\section*{Acknowledgements}
+% NOTE: update the proposal's disclosure: Claude also wrote simulator, baseline, evaluation
+%       and training code, reviewed by [who]; say how it was checked (unit tests, transcript
+%       reading, the mask check on the real tokenizer).
+
+% NOTE: \nocite{*} keeps the bibliography building before Background cites anything; remove it then.
+\nocite{*}
+\bibliography{../proposal/custom}
+
+\appendix
+\section{Team Contributions}
+% NOTE: one line per member.
+
+\end{document}

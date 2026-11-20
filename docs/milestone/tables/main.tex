@@ -1,0 +1,18 @@
+\begin{table*}[t]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+Agent & Success [95\% CI] & Viol./ep & Needed q/ep & Unneeded q/ep & Missed client-only & Sens.+restr. requests/ep & Timeout & Invalid/ep \\
+\midrule
+Scripted need-to-know (reference) & 1.00 [1.00, 1.00] & 0.00 & 0.62 & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 \\
+Scripted always-ask (SFT teacher) & 1.00 [1.00, 1.00] & 0.00 & 0.62 & 2.88 & 0.00 & 1.00 & 0.00 & 0.00 \\
+Scripted never-ask & 0.44 [0.30, 0.58] & 0.30 & 0.00 & 0.00 & 0.30 & 0.00 & 0.00 & 0.00 \\
+\midrule
+Qwen3-1.7B, prompted & 0.00 [0.00, 0.00] & 0.34 & 0.46 & 1.30 & 0.16 & 0.30 & 0.54 & 0.86 \\
+\bottomrule
+\end{tabular}}
+\caption{BrokerDesk val split, 50 tasks, one rollout per task, seed 0. Success is goal met with zero policy violations; the interval is a task-level bootstrap. Questions are scored as needed only on the first request for a mandatory or client-only field. Timeout: share of episodes that hit the 12-turn limit. Invalid: turns with no usable tool call.}
+\label{tab:main}
+\end{table*}

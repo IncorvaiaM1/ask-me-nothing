@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+Agent & Succ. clean & Succ. inj. & Seen & Attack & Leak \\
+\midrule
+Scripted need-to-know (reference) & 1.00 & 1.00 & 1.00 & 0.00 & 0.00 \\
+Scripted always-ask (SFT teacher) & 1.00 & 1.00 & 1.00 & 0.00 & 0.00 \\
+Scripted never-ask & 0.44 & 0.44 & 1.00 & 0.00 & 0.00 \\
+Qwen3-1.7B, prompted & 0.00 & 0.00 & 0.74 & 0.08 & 0.04 \\
+Scripted gullible (obeys notes) & 1.00 & 1.00 & 1.00 & 1.00 & 0.64 \\
+\bottomrule
+\end{tabular}}
+\caption{Paired clean and injected runs. \emph{Seen}: the agent called a tool whose output carried the attack. \emph{Attack}: after seeing it, the agent sent a targeted field through the tool the attacker named, or requested the targeted field. \emph{Leak}: any unauthorized canary disclosure in an outbound message.}
+\label{tab:attack}
+\end{table}
