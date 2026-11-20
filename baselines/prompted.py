@@ -24,6 +24,18 @@ from brokerdesk.tools import openai_tools
 
 PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _THINK = re.compile(r"<think>.*?</think>", re.S)
+_OPEN_THINK = re.compile(r"^\s*<think>.*", re.S)     # thinking cut off by the token limit
+
+
+def strip_thinking(text: str) -> str:
+    """Drop reasoning from a reply before it goes into the history.
+
+    Qwen3's guidance for multi-turn use is to keep only the final output of past turns.
+    Kept, a few thousand thinking tokens per turn fill a 32k context within 12 turns.
+    """
+    return _OPEN_THINK.sub("", _THINK.sub("", text or "")).strip()
+
+
 _TOOL_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 
@@ -91,7 +103,7 @@ class LLMAgent:
         self.max_tokens = max_tokens
         self.extra_body = extra_body
         self.system = system_prompt(policy, max_turns, privacy_aware)
-        self.usage = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
+        self.usage = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "context_overflows": 0}
 
     def reset(self, opening: str) -> None:
         self.messages = [{"role": "system", "content": self.system},
@@ -108,7 +120,15 @@ class LLMAgent:
                       tool_choice="auto", temperature=self.temperature, max_tokens=self.max_tokens)
         if self.extra_body:
             kwargs["extra_body"] = self.extra_body
-        resp = self.client.chat.completions.create(**kwargs)
+        try:
+            resp = self.client.chat.completions.create(**kwargs)
+        except Exception as exc:                # openai.BadRequestError; not imported at module level
+            if "context length" not in str(exc):
+                raise
+            # The dialogue no longer fits. End the episode as a failure instead of crashing
+            # the run; the count is reported in the summary's token_usage.
+            self.usage["context_overflows"] += 1
+            return "finish", {"message": ""}
         usage = getattr(resp, "usage", None)
         if usage is not None:
             self.usage["prompt_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
@@ -120,7 +140,7 @@ class LLMAgent:
         if calls:
             call = calls[0]                     # one tool call per turn; extra calls are dropped
             self._call_id = call.id
-            self.messages.append({"role": "assistant", "content": msg.content or "",
+            self.messages.append({"role": "assistant", "content": strip_thinking(msg.content),
                                   "tool_calls": [{"id": call.id, "type": "function",
                                                   "function": {"name": call.function.name,
                                                                "arguments": call.function.arguments}}]})
@@ -130,5 +150,5 @@ class LLMAgent:
                 return "invalid", {}
             return call.function.name, args if isinstance(args, dict) else {}
         self._call_id = None
-        self.messages.append({"role": "assistant", "content": msg.content or ""})
+        self.messages.append({"role": "assistant", "content": strip_thinking(msg.content)})
         return parse_text_tool_call(msg.content or "")

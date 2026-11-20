@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from baselines.prompted import LLMAgent, parse_text_tool_call, system_prompt
+from baselines.prompted import LLMAgent, parse_text_tool_call, strip_thinking, system_prompt
 from baselines.scripted import HeuristicAgent
 from brokerdesk.env import BrokerDeskEnv
 from brokerdesk.policy import book_value, default_policy
@@ -227,8 +227,31 @@ def test_llm_agent_runs_an_episode_through_the_chat_interface():
     ep = run_episode(task, agent, POLICY)
     s = ep["score"]
     assert s["success"] and s["invalid_calls"] == 1 and s["turns"] == 4
-    assert agent.usage == {"prompt_tokens": 400, "completion_tokens": 40, "calls": 4}
+    assert agent.usage == {"prompt_tokens": 400, "completion_tokens": 40, "calls": 4,
+                           "context_overflows": 0}
     last = fake.requests[-1]
     assert last[0]["role"] == "system" and last[1] == {"role": "user", "content": task.request}
     assert last[3]["role"] == "tool" and last[3]["tool_call_id"] == "call_1"
     assert last[-1]["role"] == "user" and last[-1]["content"].startswith("Tool result:")
+
+
+def test_thinking_is_kept_out_of_the_history():
+    assert strip_thinking("<think>long reasoning</think>\n\nSure.") == "Sure."
+    assert strip_thinking("<think>cut off by the token lim") == ""
+    assert strip_thinking(None) == ""
+    task = _first("raise_cash")
+    fake = _FakeClient(['<think>plan plan plan</think><tool_call>{"name": "get_positions", "arguments": {}}</tool_call>',
+                        ("finish", {"message": "Done."})])
+    agent = LLMAgent("fake-model", policy=POLICY, client=fake)
+    run_episode(task, agent, POLICY)
+    assert "plan plan plan" not in json.dumps(fake.requests[-1])
+    assert "get_positions" in json.dumps(fake.requests[-1])
+
+
+def test_context_overflow_ends_the_episode_instead_of_crashing():
+    class Overflow(_FakeClient):
+        def _create(self, **kwargs):
+            raise RuntimeError("This model's maximum context length is 32768 tokens.")
+    agent = LLMAgent("fake-model", policy=POLICY, client=Overflow([]))
+    s = run_episode(_first("raise_cash"), agent, POLICY)["score"]
+    assert s["finished"] and not s["success"] and agent.usage["context_overflows"] == 1
