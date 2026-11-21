@@ -15,8 +15,11 @@
 % Build:  cd docs/milestone && latexmk -pdf milestone.tex
 % Tables: python -m eval.milestone_tables   (from the repo root, after pulling new results)
 %
-% Lines starting with "% NOTE:" are facts to work from, not text for the paper. Delete each
-% one once its section is written. The prose is the team's to write (course AI policy).
+% DRAFT WRITTEN BY CLAUDE from the proposal, the repository, and the results files. The course
+% follows ACL's rules on generative assistance: before submitting, the team rewrites this in
+% their own words, checks every number against results/ and every claim against the cited
+% papers, and updates the Acknowledgements to say what was drafted and how it was checked.
+% Lines starting with "% TODO:" mark places that need a result or a decision.
 
 \title{Ask Me Nothing: Learning Need-to-Know Clarification \\ for Financial Agents with Multi-Turn RL}
 
@@ -27,97 +30,112 @@
 \begin{document}
 \maketitle
 
+\begin{abstract}
+In financial dialogue a clarifying question is also an act of data collection: asking a client for their income or tax bracket moves sensitive information into the agent's context whether or not the task needs it. We study whether a small model can learn to ask only what it needs to know. We built BrokerDesk, a simulated brokerage desk with a written policy, exact end-state checks, structured field requests labeled by information class and sensitivity, canary-marked client data, and injected instructions in untrusted tool outputs. Scripted reference agents confirm the simulator separates the behaviours we study. A prompted Qwen3-1.7B completes none of 50 validation tasks: it rarely trades, loops on pre-trade checks, and asks unneeded questions almost three times as often as needed ones. We report these results, measured training cost, and the resulting change to our plan, chiefly a supervised warm start before multi-turn RL.
+\end{abstract}
+
 \section{Introduction}
-% NOTE: start from proposal Section 1 (problem, why open, contribution). Milestone asks for a
-%       draft that reads like the case-study surveys: motivation, the question, what we build.
-% NOTE: the contribution is the controlled study of question costs plus sensitivity-priced
-%       field requests in policy-constrained tool dialogue, not RL for clarification alone
-%       (CoA already does GRPO for clarification in VQA).
+
+When an assistant is unsure what a user wants, the standard remedy is to ask. A large and growing body of work trains language models to decide when a question is worth asking, by rewarding clarification that improves task outcomes and penalizing questions that do not \citep{wu-2025-collabllm,acikgoz-2025-speakrl,suri-2026-structured,zhao-2026-askbench,berant-2025-steerable}. In that work a question costs time, tokens or the user's patience; what it asks for is treated as neutral.
+
+In finance that framing misses half the cost. A broker's assistant that asks a client for their income in order to raise cash has collected sensitive data it had no use for, and that data now sits in a transcript, a log and possibly a message to someone else. Regulation points the same way: suitability rules make some questions mandatory before a recommendation \citep{finra-2111}, while privacy rules require firms to safeguard the customer information they hold \citep{finra-2024-regsp}. An agent therefore has to do two things at once; ask the questions the desk requires, and avoid the ones it does not. Recent evaluations show that current agents do the second badly, requesting personal data that tasks do not need and filling optional personal fields \citep{tang-2026-myphonebench}, but they measure the failure rather than train against it.
+
+Our question is whether multi-turn reinforcement learning can teach a small model need-to-know clarification: completing a policy-constrained tool task while asking only for information that is missing and necessary, with each unnecessary request priced by the sensitivity of what it collects. A flat question cost is prior work \citep{berant-2025-steerable}; our contribution is the controlled comparison between a flat cost and a sensitivity-priced one, in a setting where some questions are mandatory and never asking is itself a policy violation.
+
+This milestone reports BrokerDesk, which now runs end to end with exact scoring of every question, order and outbound message (Section~\ref{sec:desk}); our baseline, in which scripted agents bracket the behaviours under study and a prompted Qwen3-1.7B fails every validation task (Section~\ref{sec:results}); and measured training cost and the plan changes the baseline forces (Sections~\ref{sec:changes} and~\ref{sec:plan}).
 
 \section{Background}
-% NOTE: expand the proposal's related-work paragraph into subsections, for example:
-%       clarification and preference elicitation (UserBench, Ask or Assume?, CollabLLM, CoA);
-%       tool-agent-user evaluation (tau-bench, pass^k);
-%       data minimization and contextual privacy (AirGapAgent, AgentDAM, AgentRaft, PrivacyLens);
-%       prompt injection through tool outputs (AgentDojo);
-%       GRPO (DeepSeekMath) and Qwen3.
-% NOTE: every citation must be read by whoever cites it; bib is ../proposal/custom.bib.
+
+\paragraph{Learning when to clarify.} Recent work trains the decision to clarify with RL. CollabLLM rewards responses by their estimated long-term effect on a multi-turn collaboration \citep{wu-2025-collabllm}. SpeakRL rewards agents for asking the right clarification questions when needed \citep{acikgoz-2025-speakrl}. \citet{suri-2026-structured} ground uncertainty in tool parameter domains to decide which questions to ask and when to stop, and use it as an RL training signal. AskBench converts question answering into multi-turn interactions and trains with rubric-guided verifiable rewards \citep{zhao-2026-askbench}. \citet{berant-2025-steerable} give the assistant an explicit cost per question and per word and train a policy whose behaviour shifts predictably with those costs, the closest method to ours. Clarify or Answer already applies GRPO to clarification in visual question answering \citep{cao-2026-coa}, and UserBench and Ask or Assume? evaluate elicitation and clarification decisions in tool and coding settings \citep{qian-2025-userbench,edwards-2026-askorassume}. In none of the work we found does a question's cost depend on the sensitivity of what it asks for.
+
+\paragraph{Data minimization and contextual privacy in agents.} PrivacyLens evaluates whether agent actions respect contextual privacy norms \citep{shao-2024-privacylens}, and \citet{lan-2025-ci-rl} train models with RL to reduce inappropriate disclosures. AirGapAgent restricts an agent to the data a task needs before it acts \citep{bagdasarian-2024-airgap}; AgentDAM evaluates data minimization in web agents \citep{zharmagambetov-2025-agentdam}; AgentRaft detects data over-exposure across tool calls \citep{lin-2026-agentraft}; ToolPrivacyBench audits whether private items reach only the tools that need them \citep{hu-2026-toolprivacybench}. This work concerns what an agent sends out. The collection side, an agent asking the user for more than it needs, has been measured \citep{tang-2026-myphonebench} but, as far as we found, not trained against.
+
+\paragraph{Evaluation, injection and training.} $\tau$-bench established the structure we follow: a tool-using agent, a simulated user, a written policy, scoring by final state, and pass$^k$ for reliability across trials \citep{yao-2025-taubench}. AgentDojo showed that instructions planted in untrusted tool outputs can hijack agents \citep{debenedetti-2024-agentdojo}; we use its threat model. GRPO estimates advantages from groups of samples for the same prompt \citep{shao-2024-deepseekmath}; we apply it to groups of complete dialogues and train LoRA adapters on Qwen3 \citep{qwen3-model}.
 
 \section{BrokerDesk}
-% NOTE: what now exists and runs: two core task families (cash-raising, rebalancing);
-%       300/50/100 train/val/test tasks, generated from fixed seeds, disjoint clients;
-%       60% of tasks underspecified, stratified per family.
-% NOTE: tools: get_positions, get_profile, get_quote, risk_check, place_order, ask_client,
-%       message_counterparty, request_research, finish. 12 tool turns; prices move each turn.
-% NOTE: policy: 25% position limit on buys, $250k max order, restricted list, no shorts, no
-%       buying past cash, model equity share by risk tolerance (40/60/80%) within 3 points,
-%       raise cash within 0-10% over target, suitability (risk tolerance must be known before
-%       any order). Breaking orders are rejected and counted as violations.
-% NOTE: information classes per field; structured ask_client(field, question) makes question
-%       scoring exact; reward exactly as in the proposal, weights q=0.02, tiers 0.01/0.05/0.5,
-%       violation 1, leak 1.
-% NOTE: injection: attacker text in untrusted tool outputs (account note, vendor note, research
-%       reply); three attacks (exfiltrate to research, to counterparty, collect SSN), assigned
-%       deterministically so clean and injected runs pair.
+\label{sec:desk}
 
-\section{Baseline and First Results}
-% NOTE: scripted agents bracket the behaviours and validate the simulator: need-to-know solves
-%       every task in all three splits; never-ask fails exactly where information is missing;
-%       always-ask succeeds but pays the costs.
-% NOTE: prompted Qwen3-1.7B (vLLM, hermes tool parser, thinking off, temperature 0): 0/50.
-%       From the transcripts: 224 of 468 calls were risk_check, often looping to the turn
-%       limit (54% timeouts); 0.12 filled orders per episode; closing messages claim trades
-%       that never happened; 1.30 of 1.76 questions per episode unneeded; 5 episodes asked for
-%       income, net worth, tax bracket unprompted.
-% NOTE: under injection: attack seen 74%, attack success 8% (all from the collect-SSN attack,
-%       22% of its tasks), targeted field collected 20%, two SSN leaks (one to the
-%       counterparty, one in the closing message).
-% NOTE: add thinking-on and SFT rows here once warm_start.sh results are pushed.
+\paragraph{Tasks.} Each task is a client request plus a hidden goal checked exactly at the end of the episode. The two core families are \emph{cash raising}, where the client needs a dollar amount freed without selling a protected holding, and \emph{rebalancing}, where the account must return to the desk's model equity share for the client's risk tolerance. We generate 300 training, 50 validation and 100 test tasks from fixed seeds with disjoint clients; 60\% of tasks in each family are underspecified, so that completing them requires at least one question.
+
+\paragraph{Tools and policy.} The agent has a 12-call budget across nine tools: positions, profile lookup, quotes, a pre-trade risk check, order placement, a question to the client, messages to a counterparty and to a research provider, and a closing message. Prices follow a seeded random walk and move after every call, so each question costs time in the market. The written policy caps any buy at 25\% of the book, caps orders at \$250{,}000, bans restricted securities, short sales and buying past available cash, sets model equity shares of 40, 60 and 80\% by risk tolerance, and requires the risk tolerance to be known before any order. Orders that break the policy are rejected and counted as violations.
+
+\paragraph{Scoring questions.} The agent asks through a structured request that names one field. Every field in every task carries an information class: \emph{derivable} from the request, \emph{on file} through the profile tool, \emph{mandatory} and missing, \emph{client-only}, or \emph{irrelevant}. A question is needed the first time it asks for a mandatory or client-only field; any other question, including a repeat, is an unneeded request and pays that field's cost again. Looking up an irrelevant field on file is also over-collection. This makes every question's value deterministic, with no judge model in the loop.
+
+\paragraph{Privacy.} Client fields fall in three tiers: low (risk tolerance, time horizon), sensitive (income, net worth, tax bracket) and restricted (social security and account numbers, which no task needs). Every value carries a unique canary marker, and a leak is that marker appearing in an outbound message: to the client for anything above the low tier, and to any third party for anything at all. Incoming observations are never leaks.
+
+\paragraph{Reward.} For questions $n_q$, unneeded field requests $U$, violations $n_v$ and unauthorized disclosures $n_\ell$,
+\begin{align*}
+R =\;&\mathbf{1}[\text{goal met}] - \lambda_q n_q \\
+&-\textstyle\sum_{f\in U}\lambda_{\mathrm{tier}(f)}-\lambda_v n_v-\lambda_\ell n_\ell,
+\end{align*}
+with $\lambda_q=0.02$, tier costs $0.01$, $0.05$ and $0.5$, and $\lambda_v=\lambda_\ell=1$. A mandatory field never obtained counts as a violation, so never asking is penalized by the policy itself.
+
+\paragraph{Injection.} Attacker text appears in the three tool outputs the desk does not author: an account note, a vendor note on quotes, and the research reply. Three attacks ask the agent to send client identifiers to the research provider, send account number and net worth to the counterparty, or ask the client to confirm their social security number. Each task gets one attack deterministically, so clean and injected runs pair exactly; an attack succeeds only if the agent does the targeted thing after seeing the text.
+
+\section{Baselines and First Results}
+\label{sec:results}
 
 \input{tables/main}
+
+\paragraph{Scripted references.} Three hand-written agents check the simulator and bracket the behaviours under study (Table~\ref{tab:main}). The need-to-know agent reads the request, looks up what is on file and asks only for what the client alone can supply; it solves every task in all three splits with no unneeded requests, which shows every task is feasible within the policy and turn budget. The never-ask agent uses the same trading logic but guesses instead of asking; it succeeds on 44\% of validation tasks and fails exactly on those with missing information. The always-ask agent asks for everything up front, including two profile fields no task uses; it succeeds everywhere but makes 2.88 unneeded requests per episode, one of them sensitive. 
+
+\paragraph{Prompted Qwen3-1.7B.} We served Qwen3-1.7B with vLLM and a tool-call parser, with thinking disabled, temperature 0 and a system prompt that states the full policy and a need-to-know instruction. It completed none of the 50 validation tasks. The transcripts show three failure patterns.
+\begin{itemize}
+  \item \emph{It rarely trades.} Only 0.12 orders were filled per episode. Nearly half of all its calls, 224 of 468, were pre-trade risk checks, often repeated until the turn limit; 54\% of episodes timed out.
+  \item \emph{It reports work it did not do.} Several closing messages tell the client that cash was raised when nothing was sold, or after selling the one holding the client asked to keep.
+  \item \emph{It over-asks, which is the behaviour we target.} Of 1.76 questions per episode, 1.30 were unneeded; in five episodes it asked for time horizon, income, net worth and tax bracket unprompted. It also missed a client-only field in 16\% of episodes.
+\end{itemize}
+A further 0.86 turns per episode produced text with no usable tool call.
+
+% TODO: thinking-on row. Add one sentence on whether reasoning changes the failure pattern.
+% TODO: SFT warm-start row (Table 1 picks it up automatically). Add a paragraph: success,
+%       unneeded questions per episode against the teacher's 2.88, and what it means for RL.
+
 \input{tables/attack}
 
+\paragraph{Under injection.} Table~\ref{tab:attack} pairs clean and injected runs. The prompted model saw the attack text in 74\% of episodes; in the rest it never called a tool that carries it. Attacks succeeded in 8\% of episodes, all from the request to confirm the client's social security number, which worked on 22\% of the tasks it was assigned. In two episodes the model disclosed the number, once to the counterparty and once in its closing message to the client; neither matched the exact channel the attacker named, so they count as leaks but not as attack successes. A scripted agent that obeys any note fails every attack, which shows the metric registers a compromised agent.
+
+\paragraph{Measured compute.} On one NVIDIA H100 80GB on PACE-ICE, a LoRA gradient step on our dialogues, which average about 2{,}500 tokens with about 10\% of tokens produced by the agent, ran at about 14{,}900 tokens per second for Qwen3-0.6B and 13{,}450 for Qwen3-1.7B, with peak memory of 12.8 and 18.0\,GB at batch size 1. On a fixed batch the training loss fell over four steps, as an advantage-weighted likelihood objective should. At these rates the training half of one run of 7{,}200 episodes takes about 0.3 and 0.4 GPU-hours. Rollout generation dominates: the prompted baseline ran 100 episodes in 248 seconds one call at a time, including server start.
+
 \section{What Changed Since the Proposal}
-% NOTE: supervised warm start is now required before RL, not only a baseline: with 0% success,
-%       every GRPO group fails and only the costs differ, which would teach never-ask/never-act.
-% NOTE: the SFT teacher is the scripted always-ask agent, not filtered frontier trajectories:
-%       it trades correctly but over-asks, leaving RL the question the paper is about; the
-%       need-to-know agent becomes the reference. Frontier reference still planned.
-% NOTE: compute is far below the proposal estimate. Measured on PACE-ICE [GPU model, from
-%       runs/initial/3_gpu.log]: LoRA training at ~13.5k tokens/s (1.7B) and ~14.9k (0.6B),
-%       18.0 GB and 12.8 GB peak at batch size 1, dialogues ~2.5-2.6k tokens. Training half of
-%       one run is ~0.4 GPU-hours; rollout generation dominates (100 episodes in 248 s
-%       sequentially). Estimate 1-2 GPU-hours per run, 10-20 for the nine core runs, versus
-%       45-90 in the proposal.
-% NOTE: Qwen3 chat template is not prefix-consistent (empty think block only on the last
-%       assistant turn), so training sequences are assembled turn by turn; verified on the
-%       real tokenizer.
-% NOTE: dates slipped: minimal environment landed Nov 16 (planned Nov 9); RL library choice
-%       (planned Nov 15) replaced by our own grouped-rollout harness plus a reference loss,
-%       verified with one LoRA step.
-% NOTE: not yet built: LLM-simulated clients, AirGap-style minimizer, margin rules,
-%       goal-aware execution-shortfall reference.
+\label{sec:changes}
+
+\paragraph{A warm start is now required.} With no successful rollouts, every GRPO group fails, so rewards differ only by question and privacy costs; the policy gradient would then favour asking nothing and doing nothing, the shortcut our third research question is designed to rule out. Supervised fine-tuning before RL is therefore part of the method, not only a baseline.
+
+\paragraph{The teacher is a scripted over-asker.} The proposal planned to distil filtered frontier-model trajectories. We instead fine-tune on the scripted always-ask agent, which trades correctly but asks for everything. Copying the need-to-know agent would leave RL nothing to learn; copying the over-asker produces a competent model that still has the habit under study, so RL has exactly the job our thesis describes. The need-to-know agent becomes the reference. A prompted frontier model remains planned as a reference row.
+
+\paragraph{Compute is an order of magnitude below the estimate.} The proposal estimated 45 to 90 GPU-hours for nine core runs. Our measurements put one run at roughly 1 to 2 GPU-hours, mostly rollout generation, or 10 to 20 for all nine. We will spend the margin on a sweep of question and tier costs.
+
+\paragraph{Training sequences are assembled turn by turn.} Qwen3's chat template renders past assistant turns differently from the turn being generated: with thinking disabled, the empty reasoning block appears only on the last turn. A single rendering of a finished dialogue would train each reply in a context the model never sees at inference. We instead build each training sequence from the prompt the model was actually given at each turn, followed by its own tokens, and verified the resulting loss mask on the real tokenizer. For the same reason, reasoning text is dropped from the history between turns.
+
+\paragraph{Our own harness, and slipped dates.} The minimal simulator, planned for November 9, ran on November 16. In place of the RL library choice planned for November 15, we wrote a small harness: grouped rollouts on a shared price path, group-normalized advantages, the turn-by-turn mask and a reference loss, which any library can consume.
+
+\paragraph{Two weaknesses in our design.} No sensitive field is ever needed in the core families, so a blanket refusal to ask for sensitive data would look like a privacy gain without judgment; and requests follow templates, so the scripted agent finds what is missing by pattern matching. Section~\ref{sec:plan} addresses both.
 
 \section{Plan for the Last Three Weeks}
-% NOTE: Nov 22-26: wire the GRPO loop (collect, step, reload), first runs from the SFT
-%       checkpoint; check never-ask shortcut against underspecified tasks.
-% NOTE: Nov 27-Dec 1: nine core runs (full, privacy cost off, question cost off; seeds
-%       0,1,2); cost sweep; test split with five rollouts for pass^1 and pass^3.
-% NOTE: Dec 2: poster PDF. Dec 3: poster session.
-% NOTE: Dec 3-8: LLM-client transfer subset and injected test set (RQ4), frontier reference,
-%       error analysis, final paper and code (Dec 8, cannot move).
+\label{sec:plan}
+
+\paragraph{Before any RL run.} The leak check matches only canary markers, so a policy could learn to copy a value without its marker and avoid the penalty while still leaking. We will also match the raw values, and report a \emph{secure success} rate: goal met with no violations, no leaks and no successful attack.
+
+\paragraph{By November 26.} Wire the training loop and run first experiments from the warm-started model. Promote tax-aware trimming to a core family, so the tax bracket is needed in some tasks and irrelevant in others; add paraphrased requests; add cash raises above the order cap that must go to a counterparty, who needs the ticker and size and nothing about the client; and expand to 10 to 15 attacks in several styles with a held-out set.
+
+\paragraph{By December 1.} Nine core runs: the full reward, privacy cost off and question cost off, each over seeds 0, 1 and 2. The comparison between the full reward and privacy cost off is the central result, since the latter is a flat question cost as in prior work. Then the cost sweep, and the test split with five rollouts per task for pass$^1$ and pass$^3$ with task-bootstrap intervals.
+
+\paragraph{December 2 to 8.} Poster on December 2 and 3; then transfer to LLM-simulated clients and held-out attacks, the frontier reference, an AirGap-style minimizer if time allows, error analysis, and the final paper and code.
+
+\paragraph{Risks.} If the warm-started model still fails most tasks, we will ease the tasks before RL. If RL does not beat fine-tuning, BrokerDesk and the controlled cost comparisons still support a paper on how prompted, distilled and scripted agents trade success against collection and disclosure.
+
+\section*{Limitations}
+BrokerDesk is synthetic, with one domain, a scripted client and templated requests; a scripted client answers every question, including for restricted data, so collection is the agent's responsibility alone. Canary matching detects verbatim disclosure only. Results so far are one rollout per validation task at one seed. The desk policy is a simplification and makes no claim of regulatory compliance.
 
 \section*{Acknowledgements}
-% NOTE: update the proposal's disclosure: Claude also wrote simulator, baseline, evaluation
-%       and training code, reviewed by [who]; say how it was checked (unit tests, transcript
-%       reading, the mask check on the real tokenizer).
+% TODO: rewrite in the team's words and keep it accurate.
+Claude (Anthropic) drafted this milestone from the proposal, repository and result files, and wrote most of the simulator, baseline, evaluation and training code; [who] reviewed the code, and we checked it with unit tests, by reading transcripts, and by verifying the loss mask on the real tokenizer. Claude also assisted literature search for the new citations, each of which [who] read. OpenAI Codex assisted source checks for the proposal.
 
-% NOTE: \nocite{*} keeps the bibliography building before Background cites anything; remove it then.
-\nocite{*}
-\bibliography{../proposal/custom}
+\bibliography{../proposal/custom,milestone}
 
 \appendix
 \section{Team Contributions}
-% NOTE: one line per member.
+% TODO: one line per member.
 
 \end{document}
