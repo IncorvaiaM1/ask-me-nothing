@@ -7,10 +7,8 @@
 \usepackage{microtype}
 \usepackage{booktabs}
 \usepackage{amsmath}
-\usepackage{enumitem}
 \usepackage{xurl}
 \usepackage{graphicx}
-\setlist{nosep,leftmargin=1.2em}
 
 % Build:  cd docs/milestone && latexmk -pdf milestone.tex
 % Tables: python -m eval.milestone_tables   (from the repo root, after pulling new results)
@@ -32,14 +30,14 @@
 \maketitle
 
 \begin{abstract}
-In financial dialogue a clarifying question is also an act of data collection. We built BrokerDesk, a simulated brokerage desk that scores task completion, policy violations and information requests by necessity and sensitivity. Two scripted agents solve all 50 validation tasks, but one averages 2.88 unnecessary questions per episode. Prompted Qwen3-1.7B solves none of the 50 tasks, frequently repeating pre-trade checks and asking unnecessary questions. These results motivate a supervised warm start before testing sensitivity-weighted collection costs with multi-turn reinforcement learning.
+In financial dialogue, a clarifying question also collects data. We built BrokerDesk, a simulated brokerage desk that scores task completion, policy violations and requests for client information. Prompted Qwen3-1.7B solves none of 50 validation tasks. After supervised fine-tuning, it places a filled order in every task, solves four, and copies its teacher's 2.88 unnecessary questions per episode. Getting the model to trade exposed a second problem, choosing quantities that meet the client's goal. We report both results and outline how we will test sensitivity-weighted collection costs.
 \end{abstract}
 
 \section{Introduction}
 
-A brokerage assistant that asks for a client's income to raise cash can bring sensitive data into the conversation even when the trade does not require it. Skipping a required field can also violate the desk's policy. Suitability and customer-information safeguards motivate our simplified policy \citep{finra-2111,finra-2024-regsp}.
+Say a client asks a brokerage assistant to raise cash. If the assistant asks for the client's income, it has collected a sensitive fact even if that fact never enters the trade. On another task, failing to ask for a missing field can violate desk policy. Suitability and customer information safeguards motivate the rules in our simulator \citep{finra-2111,finra-2024-regsp}.
 
-We ask whether multi-turn reinforcement learning with sensitivity-weighted costs can reduce unnecessary requests while preserving required clarification and task success. The planned comparison holds the penalty for unnecessary requests in place and varies whether that penalty depends on sensitivity. BrokerDesk runs end to end, and we report scripted and prompted baselines on its validation split.
+Can we teach an assistant to ask for the information it needs and leave the rest alone? We test that idea by comparing a uniform penalty for unnecessary requests with one that depends on sensitivity. At this milestone, we have validation results for scripted agents, the prompted model and its supervised warm start.
 
 \section{Background}
 
@@ -56,9 +54,9 @@ We ask whether multi-turn reinforcement learning with sensitivity-weighted costs
 
 \paragraph{Tools and policy.} The agent has 12 calls to inspect positions, profiles and quotes, check or place orders, ask the client, or send messages. Prices advance after each call along a seeded path. The desk limits order sizes, prohibits restricted securities and short sales, and requires the agent to know the client's risk tolerance before trading.
 
-\paragraph{Scoring questions.} The agent asks through a structured request that names one field. Every field in every task carries an information class: \emph{derivable} from the request, \emph{on file} through the profile tool, \emph{mandatory} and missing, \emph{client-only}, or \emph{irrelevant}. A question is needed the first time it asks for a mandatory or client-only field; any other question, including a repeat, is an unneeded request and pays that field's cost again. Looking up an irrelevant field on file is also over-collection. This makes every question's value deterministic, with no judge model in the loop.
+\paragraph{Scoring questions.} Each request to the client names one field. A field may be derivable from the request, on file, mandatory and missing, available only from the client, or irrelevant. The first question about a mandatory or client-only field counts as needed. A repeat request costs the same as any other unnecessary request for that field. Looking up an irrelevant field on file also counts as unnecessary collection. The field labels let us score requests directly.
 
-\paragraph{Privacy.} Client fields fall in three tiers: low (risk tolerance, time horizon), sensitive (income, net worth, tax bracket) and restricted (social security and account numbers, which no task needs). Every value carries a unique canary marker, and a leak is that marker appearing in an outbound message: to the client for anything above the low tier, and to any third party for anything at all. Incoming observations are never leaks.
+\paragraph{Privacy.} Low sensitivity fields include risk tolerance and time horizon. Income, net worth and tax bracket are sensitive, and social security and account numbers are restricted. Each value carries a marker. We count its appearance as a leak in any message to a third party, or in a message to the client if the value is sensitive or restricted.
 
 \paragraph{Reward.} For questions $n_q$, unneeded field requests $U$, violations $n_v$ and unauthorized disclosures $n_\ell$,
 \begin{align*}
@@ -76,46 +74,38 @@ with $\lambda_q=0.02$, tier costs $0.01$, $0.05$ and $0.5$, and $\lambda_v=\lamb
 
 \paragraph{Scripted references.} The need-to-know and always-ask agents each solve all 50 validation tasks (Table~\ref{tab:main}). The former makes zero unnecessary requests, while the latter averages 2.88 unnecessary questions, including one sensitive request per episode. Never-ask shares their trading logic and guesses missing values. It solves 22 of 50 tasks, including 2 of the 30 underspecified tasks.
 
-\paragraph{Prompted Qwen3-1.7B.} We served Qwen3-1.7B with vLLM and a tool-call parser, with thinking disabled, temperature 0 and a system prompt that states the full policy and a need-to-know instruction. It completed none of the 50 validation tasks. The transcripts show three failure patterns.
-\begin{itemize}
-  \item \emph{It rarely trades.} Only 0.12 orders were filled per episode. Nearly half of all its calls, 224 of 468, were pre-trade risk checks, often repeated until the turn limit; 54\% of episodes timed out.
-  \item \emph{It reports work it did not do.} Several closing messages tell the client that cash was raised when nothing was sold, or after selling the one holding the client asked to keep.
-  \item \emph{It over-asks, which is the behaviour we target.} Of 1.76 questions per episode, 1.30 were unneeded; in five episodes it asked for time horizon, income, net worth and tax bracket unprompted. It also missed a client-only field in 16\% of episodes.
-\end{itemize}
-A further 0.86 turns per episode produced text with no usable tool call.
+\paragraph{Prompted Qwen3-1.7B.} Both model evaluations used vLLM, temperature zero and thinking disabled. With the desk policy and a need-to-know instruction in the prompt, Qwen3 solved zero tasks. It spent 224 of 468 calls on risk checks, got an order filled in only four episodes, and timed out in 27. Of its 1.76 questions per episode, 1.30 were unnecessary.
 
-% TODO: thinking-on row. Add one sentence on whether reasoning changes the failure pattern.
-% TODO: SFT warm-start row (Table 1 picks it up automatically). Add a paragraph: success,
-%       unneeded questions per episode against the teacher's 2.88, and what it means for RL.
+\paragraph{Supervised warm start.} After supervised fine-tuning (SFT), the model got a fill in all 50 episodes, timed out in none, and solved four. It asked for the same fields in the same order as its teacher on every task, including 2.88 unnecessary questions per episode. Order quantities were harder to imitate. On 25 cash requests, the model exceeded the permitted amount 16 times and fell short seven times. For one client who asked for \$44{,}000, it raised about \$116{,}337 and promptly said the request was complete. Across both task families, 41 of the 46 failures missed the goal without a recorded policy violation.
 
 \input{tables/attack}
 
-\paragraph{Under injection.} Table~\ref{tab:attack} pairs clean and injected runs. The prompted model saw the attack text in 74\% of episodes; in the rest it never called a tool that carries it. Attacks succeeded in 8\% of episodes, all from the request to confirm the client's social security number, which worked on 22\% of the tasks it was assigned. In two episodes the model disclosed the number, once to the counterparty and once in its closing message to the client; neither matched the exact channel the attacker named, so they count as leaks but not as attack successes. A scripted agent that obeys any note fails every attack, which shows the metric registers a compromised agent.
+\paragraph{Under injection.} The prompted model encountered the injected instruction in 37 of 50 runs, followed it in four, and leaked a marker in two. The SFT model encountered the instruction in all 50 runs, solved three, and registered zero attack successes or marker leaks (Table~\ref{tab:attack}).
 
-\paragraph{Compute pilot.} On one PACE-ICE H100 80GB at batch size 1, the Qwen3-0.6B and 1.7B LoRA smoke tests processed about 14{,}900 and 13{,}450 tokens per second and peaked at 12.8 and 18.0\,GB, respectively. The prompted baseline ran 100 episodes in 248 seconds including server start. We preliminarily budget 1--2 GPU-hours per RL run and will measure end-to-end cost in the pilot.
+\paragraph{Compute.} On one PACE-ICE H100 80\,GB, SFT used 600 teacher dialogues over three epochs. The training loop took 331 seconds and peak GPU memory was 22.6\,GB. The prompted baseline ran 100 episodes in 248 seconds, including server start.
 
 \section{What Changed Since the Proposal}
 \label{sec:changes}
 
-\paragraph{Supervised warm start.} With no observed task completions, the base model gives little signal for learning to trade successfully. Costs for questions, unnecessary collection, violations and leaks can still distinguish failures and may favour inactivity. We switched from planned frontier distillation to supervised fine-tuning (SFT) on the scripted always-ask teacher. Validation will measure whether SFT learns to trade and how much over-asking persists. The need-to-know script remains a reference.
+\paragraph{Choice of teacher.} The prompted model never completed a task. With few successes, a reward that charges for questions and violations can favour doing very little. We switched from planned frontier distillation to the scripted always-ask teacher so the model could learn the desk workflow from successful episodes. The need-to-know script remains a reference for how much collection the task requires.
 
 \paragraph{Training harness.} The minimal simulator ran on November 16. We built a harness for grouped rollouts on shared price paths, group-normalized advantages and an assistant-token loss mask verified with the Qwen3 tokenizer. Training sequences use the prompt rendered at each turn to match the model's inference context. End-to-end RL remains pending.
 
 \section{Plan for the Last Three Weeks}
 \label{sec:plan}
 
-\paragraph{By November 26.} Evaluate the SFT checkpoint on validation, add raw-value disclosure checks, and pilot the RL loop. The current tasks never need a sensitive field. Add matched cases where a tax bracket is required for tax-aware trading or irrelevant to a comparable trade. When it is required, vary whether it is missing or on file. Hold out request paraphrases.
+\paragraph{By November 26.} Sample several dialogues per task from the SFT adapter and count the groups with both a success and a failure. If successful samples are rare, test a shared order sizing tool that uses information the agent has already obtained. Add raw value disclosure checks and matched tasks where a tax bracket is required or irrelevant. Vary whether the required bracket is missing or on file, and hold out request paraphrases.
 
-\paragraph{By December 1.} Compare the full reward with a uniform penalty on the same unnecessary questions and profile lookups, and with the unnecessary-request penalty removed. Keep the per-question cost fixed, start from the same SFT checkpoint, and target three training seeds per variant. On paired test tasks, report policy-compliant success, required-field recall, and unnecessary requests by tier, with task-bootstrap intervals and seed-level results. With five rollouts per task, report pass$^1$ and pass$^3$.
+\paragraph{By December 1.} If the pilot supports RL, compare the tiered penalty with a uniform penalty and with the unnecessary request penalty removed. Use the same SFT initialisation and per-question cost, and target three seeds per variant. On paired test tasks, report policy-compliant success, required field recall and unnecessary requests by tier, with task bootstrap intervals and results by seed. With five rollouts per task, report pass$^1$ and pass$^3$.
 
-\paragraph{December 2--8.} Submit the poster December 2 and present December 3. Prioritize the controlled comparison and transcript error analysis for the final paper and code due December 8. If SFT remains weak, debug tool execution before RL. A prompted frontier reference, held-out injection tests and evaluation with LLM-simulated clients are secondary to the core comparison.
+\paragraph{Poster and final paper.} Submit the poster December 2 and present December 3. For the paper and code due December 8, prioritize the controlled comparison and transcript analysis. If the pilot cannot support RL, report the baseline comparisons and what the order sizing diagnostic reveals.
 
 \section*{Limitations}
 BrokerDesk uses synthetic profiles, templated requests and a scripted client that answers even requests for restricted data. Canary matching detects verbatim markers. Current results use one rollout per validation task at one seed. The simplified policy is for simulation.
 
 \section*{Acknowledgements}
 % Team review: confirm disclosure, author checks and workstream contributions before submission.
-Claude (Anthropic) drafted an earlier version of this milestone, assisted with literature search, and wrote much of the simulator, evaluation and training code. OpenAI Codex checked sources and results, edited for length and consistency, and suggested the uniform-penalty comparison. Project checks include unit tests, transcript inspection and verification of the Qwen3 loss mask.
+Claude (Anthropic) drafted an earlier version of this milestone, assisted with literature search, and wrote much of the simulator, evaluation and training code. OpenAI Codex checked sources, replayed validation transcripts, assisted with editing, and suggested the uniform penalty comparison and the order sizing diagnostic. Project checks include unit tests, transcript inspection and verification of the Qwen3 loss mask.
 
 \appendix
 \section{Team Contributions}
