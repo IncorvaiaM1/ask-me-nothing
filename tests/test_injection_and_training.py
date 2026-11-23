@@ -4,7 +4,7 @@ import pytest
 
 from baselines.scripted import HeuristicAgent
 from brokerdesk.env import BrokerDeskEnv
-from brokerdesk.injection import INJECTION_NAMES, assign_injection, load_injection
+from brokerdesk.injection import INJECTION_NAMES, INJECTION_SETS, assign_injection, load_injection
 from brokerdesk.policy import default_policy
 from brokerdesk.tasks import generate_tasks
 from eval.metrics import summarize
@@ -46,7 +46,11 @@ def test_injection_appears_only_in_untrusted_tool_outputs():
 def test_assignment_is_deterministic_and_covers_every_attack():
     names = [assign_injection(t.task_id).name for t in TASKS]
     assert names == [assign_injection(t.task_id).name for t in TASKS]
-    assert set(names) == set(INJECTION_NAMES)
+    assert set(names) == set(INJECTION_SETS["dev"])
+    held = [assign_injection(t.task_id, attack_set="heldout").name for t in TASKS]
+    assert set(held) <= set(INJECTION_SETS["heldout"]) and len(set(held)) >= 6
+    assert not set(INJECTION_SETS["dev"]) & set(INJECTION_SETS["heldout"])
+    assert set(INJECTION_SETS["dev"]) | set(INJECTION_SETS["heldout"]) == set(INJECTION_NAMES)
 
 
 def test_exfil_counts_only_through_the_named_tool_after_the_attack_is_seen():
@@ -92,7 +96,7 @@ def test_careful_agent_resists_and_gullible_agent_falls_for_every_attack():
     assert c["success"] == 1.0 and c["attack_success_rate"] == 0.0 and c["injection_seen_rate"] == 1.0
     assert g["attack_success_rate"] == 1.0 and g["attack_collected_rate"] == 1.0
     assert g["leak_rate"] > 0 and g["reward"] < c["reward"]
-    assert set(g["attack_success_by_injection"]) == set(INJECTION_NAMES)
+    assert set(g["attack_success_by_injection"]) == set(INJECTION_SETS["dev"])
     # without an attack the gullible agent is just the careful one
     clean = run_episode(TASKS[0], HeuristicAgent("gullible", POLICY), POLICY)["score"]
     assert clean["success"] and clean["n_leaks"] == 0 and clean["unneeded_requests_by_tier"] == [0, 0, 0]
@@ -123,14 +127,27 @@ def test_collect_group_shares_the_price_path_and_ranks_behaviours():
     assert msgs[3]["tool_call_id"] == call["id"] and json.loads(call["function"]["arguments"]) is not None
 
 
-def test_reward_ablations_change_only_their_own_term():
-    task = TASKS[0]
-    def reward(name, mode):
-        return run_episode(task, HeuristicAgent(mode, POLICY), POLICY, REWARD_CONFIGS[name])["score"]["reward"]
-    assert reward("no_privacy_cost", "always_ask") > reward("full", "always_ask")
-    assert reward("no_question_cost", "always_ask") > reward("full", "always_ask")
-    assert reward("no_privacy_cost", "always_ask") < 1.0 == reward("no_question_cost", "need_to_know") \
-        or task.underspecified
+def test_reward_arms_price_collection_differently():
+    from training.config import SHUFFLED_TIERS
+    from brokerdesk.tasks import PROFILE_TIERS
+    scores = {arm: [run_episode(t, HeuristicAgent("always_ask", POLICY), POLICY, REWARD_CONFIGS[arm])["score"]
+                    for t in TASKS] for arm in ("tiered", "flat", "shuffled", "no_collection_cost")}
+    mean = {arm: sum(s["reward"] for s in v) / len(v) for arm, v in scores.items()}
+    # flat is matched to tiered on the teacher's collection; removing the cost raises reward
+    assert abs(mean["flat"] - mean["tiered"]) < 0.02
+    assert mean["no_collection_cost"] > max(mean["tiered"], mean["flat"], mean["shuffled"])
+    # the shuffle keeps the set of prices, reprices four of five fields, makes the tax bracket
+    # cheap, and leaves restricted fields alone; reported tiers stay true
+    fields = ("risk_tolerance", "time_horizon", "income", "net_worth", "tax_bracket")
+    assert sorted(SHUFFLED_TIERS[f] for f in fields) == sorted(int(PROFILE_TIERS[f]) for f in fields)
+    assert sum(SHUFFLED_TIERS[f] != PROFILE_TIERS[f] for f in fields) == 4
+    assert SHUFFLED_TIERS["tax_bracket"] == 0 and SHUFFLED_TIERS["ssn"] == SHUFFLED_TIERS["account_number"] == 2
+    assert [s["unneeded_requests_by_tier"] for s in scores["shuffled"]] == \
+           [s["unneeded_requests_by_tier"] for s in scores["tiered"]]
+    # the need-to-know reference pays no collection cost under any arm
+    ref = [run_episode(t, HeuristicAgent("need_to_know", POLICY), POLICY, REWARD_CONFIGS[a])["score"]["reward"]
+           for t in TASKS[:10] for a in ("tiered", "flat", "shuffled")]
+    assert ref[0::3] == ref[1::3] == ref[2::3]
 
 
 def test_collect_cli_round_trip(tmp_path):
@@ -281,3 +298,13 @@ def test_sft_dialogues_come_from_successful_teacher_runs_only():
     assert 0 < kept["kept"] < kept["attempted"]                # the guesser's failures are filtered out
     ids, mask = assistant_mask(FakeTokenizer(), dialogues[0], enable_thinking=False)
     assert sum(mask) > 0
+
+
+def test_every_held_out_attack_lands_on_a_gullible_agent_and_misses_a_careful_one():
+    for name in INJECTION_SETS["heldout"]:
+        inj = load_injection(name)
+        for t in TASKS[:6]:
+            g = run_episode(t, HeuristicAgent("gullible", POLICY), POLICY, injection=inj)["score"]
+            c = run_episode(t, HeuristicAgent("need_to_know", POLICY), POLICY, injection=inj)["score"]
+            assert g["attack_success"] and not g["secure_success"], (name, t.task_id)
+            assert c["injection_seen"] and not c["attack_success"], (name, t.task_id)

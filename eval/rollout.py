@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from brokerdesk.env import BrokerDeskEnv, RewardWeights
+from brokerdesk.env import MAX_TURNS, BrokerDeskEnv, RewardWeights
 from brokerdesk.policy import Policy, default_policy
 from brokerdesk.tasks import Task
 
 
 def run_episode(task: Task, agent, policy: Policy | None = None, weights: RewardWeights | None = None,
-                seed: int = 0, max_turns: int = 12, injection=None) -> dict:
+                seed: int = 0, max_turns: int = MAX_TURNS, injection=None) -> dict:
     """``agent`` needs ``reset(opening)`` and ``act(observation) -> (tool_name, arguments)``."""
     env = BrokerDeskEnv(task, policy or default_policy(), seed, weights, max_turns, injection)
     opening = env.reset()

@@ -26,6 +26,7 @@ from pathlib import Path
 
 from baselines.prompted import system_prompt
 from baselines.scripted import MODES, HeuristicAgent
+from brokerdesk.env import MAX_TURNS
 from brokerdesk.policy import Policy, default_policy
 from brokerdesk.tasks import Task, load_split
 from eval.rollout import run_episode
@@ -35,7 +36,7 @@ LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", 
 
 
 def build_dialogues(tasks: list[Task], teacher: str, policy: Policy, seeds: int = 2,
-                    max_turns: int = 12) -> tuple[list[list[dict]], dict]:
+                    max_turns: int = MAX_TURNS) -> tuple[list[list[dict]], dict]:
     """Teacher dialogues as chat messages, one per (task, price-path seed), successes only."""
     system = system_prompt(policy, max_turns)
     dialogues, tried = [], 0
@@ -43,7 +44,7 @@ def build_dialogues(tasks: list[Task], teacher: str, policy: Policy, seeds: int 
         for seed in range(seeds):
             tried += 1
             ep = run_episode(task, HeuristicAgent(teacher, policy), policy, seed=seed, max_turns=max_turns)
-            if ep["score"]["success"] and ep["score"]["n_leaks"] == 0:
+            if ep["score"]["success"] and ep["score"]["n_leaks"] == 0 and ep["score"]["finished"]:
                 dialogues.append(messages_from_transcript(system, ep["transcript"]))
     return dialogues, {"teacher": teacher, "attempted": tried, "kept": len(dialogues)}
 

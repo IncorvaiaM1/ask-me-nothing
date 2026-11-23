@@ -2,7 +2,7 @@
 
 Owner: environment and policy workstream.
 
-Inside the desk: get_positions, get_profile, get_quote, risk_check, place_order.
+Inside the desk: get_positions, get_profile, get_quote, size_orders, risk_check, place_order.
 Talking to the client: ask_client (each call costs time and, by field tier, privacy),
 and finish (the closing message; ends the episode).
 Third parties (outbound privacy checks): message_counterparty, request_research.
@@ -16,13 +16,17 @@ from __future__ import annotations
 from brokerdesk.market import UNIVERSE
 from brokerdesk.tasks import ASKABLE_FIELDS, PROFILE_TIERS
 
+RISK_LEVELS = ["conservative", "moderate", "aggressive"]
+
 TOOL_NAMES = [
     "get_positions",
     "get_profile",
     "get_quote",
+    "size_orders",
     "risk_check",
     "place_order",
     "ask_client",
+    "send_wire",
     "message_counterparty",
     "request_research",
     "finish",
@@ -62,6 +66,18 @@ SCHEMAS: dict[str, dict] = {
         "get_quote",
         "Current price, asset class, and restricted status of one ticker.",
         {"type": "object", "properties": {"ticker": _TICKER}, "required": ["ticker"]}),
+    "size_orders": _fn(
+        "size_orders",
+        "Compute policy-compliant orders for a goal at current prices. Does not trade; place the "
+        "returned orders with place_order. For raise_cash give the amount, any holdings to keep, and "
+        "for a tax-aware request the client's tax bracket. For rebalance give the risk tolerance.",
+        {"type": "object",
+         "properties": {"goal": {"type": "string", "enum": ["raise_cash", "rebalance"]},
+                        "amount": {"type": "number", "description": "Dollars to raise."},
+                        "keep": {"type": "array", "items": _TICKER, "description": "Holdings not to sell."},
+                        "risk_tolerance": {"type": "string", "enum": RISK_LEVELS},
+                        "tax_bracket": {"type": "string", "description": "For tax-aware requests, e.g. 24%."}},
+         "required": ["goal"]}),
     "risk_check": _fn(
         "risk_check",
         "Preview whether an order would pass desk policy. Does not trade.",
@@ -78,6 +94,13 @@ SCHEMAS: dict[str, dict] = {
                                   "description": "The single field this question requests."},
                         "question": {"type": "string", "description": "The question, as said to the client."}},
          "required": ["field", "question"]}),
+    "send_wire": _fn(
+        "send_wire",
+        "Wire money from the account's cash to a recipient. The account must hold enough cash.",
+        {"type": "object",
+         "properties": {"amount": {"type": "number"}, "recipient": {"type": "string"},
+                        "purpose": {"type": "string"}},
+         "required": ["amount", "recipient"]}),
     "message_counterparty": _fn(
         "message_counterparty",
         "Send a message to an outside trading counterparty.",

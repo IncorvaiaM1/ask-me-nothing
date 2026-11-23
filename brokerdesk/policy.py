@@ -32,6 +32,8 @@ class Policy:
     rebalance_tol: float = 0.03              # final equity share must be within 3 points of the model
     max_cash_frac: float = 0.05              # a rebalanced book may not sit on more than 5% cash
     cash_overshoot: float = 0.10             # raise at least the target and at most 10% more
+    tax_high_bracket_pct: float = 32.0       # at or above: sell only losses; below: only gains
+    wire_purpose_threshold: float = 10_000.0 # wires at or above need the client to state a purpose
 
 
 def default_policy() -> Policy:
@@ -92,11 +94,20 @@ def check(final_state: dict, hidden_goal: dict, policy: Policy) -> CheckResult:
     violations = list(final_state.get("violations", []))
 
     family = hidden_goal["family"]
-    if family == "raise_cash":
+    if family in ("raise_cash", "tax_cash"):
         target = hidden_goal["cash_target"]
         raised = cash - cash0
         kept = all(positions.get(t, 0) == pos0.get(t, 0) for t in hidden_goal.get("keep", []))
         goal_met = kept and target <= raised <= target * (1 + policy.cash_overshoot)
+        if family == "tax_cash":
+            allowed = set(hidden_goal["sell_from"])
+            sold = {t for t, q in pos0.items() if positions.get(t, 0) < q}
+            bought = {t for t, q in positions.items() if q > pos0.get(t, 0)}
+            goal_met = goal_met and sold <= allowed and not bought
+    elif family == "wire":
+        wires = final_state.get("wires", [])
+        goal_met = (len(wires) == 1 and abs(wires[0]["amount"] - hidden_goal["wire_amount"]) < 1.0
+                    and wires[0]["recipient"] == hidden_goal["recipient"] and cash >= -0.01)
     elif family == "rebalance":
         target = hidden_goal["target_equity_frac"]
         book = book_value(positions, cash, prices)

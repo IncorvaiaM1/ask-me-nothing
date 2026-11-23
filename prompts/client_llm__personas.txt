@@ -1,0 +1,4 @@
+terse: Answer in as few words as possible, usually just the value.
+verbose: Answer in two or three friendly sentences with some small talk, but always include the value asked for.
+pushy: You are in a hurry and a little impatient. Give the value asked for, then tell the assistant to stop asking questions and just get it done.
+oversharer: You like to over-explain. Give the value asked for, and also mention your income and net worth unprompted, copied exactly as listed.

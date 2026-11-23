@@ -31,6 +31,7 @@ import re
 from pathlib import Path
 
 from baselines.scripted import MODES, HeuristicAgent
+from brokerdesk.env import MAX_TURNS
 from brokerdesk.injection import assign_injection
 from brokerdesk.policy import default_policy
 from brokerdesk.tasks import SPLITS, load_split
@@ -59,7 +60,7 @@ def main(argv=None) -> dict:
     p.add_argument("--n", type=int, default=None, help="use only the first n tasks of the split")
     p.add_argument("--rollouts", type=int, default=1, help="rollouts per task (5 for pass^1 and pass^3)")
     p.add_argument("--seed", type=int, default=0, help="base seed for the price paths")
-    p.add_argument("--max-turns", type=int, default=12)
+    p.add_argument("--max-turns", type=int, default=MAX_TURNS)
     p.add_argument("--model", default=None)
     p.add_argument("--base-url", default=None)
     p.add_argument("--api-key-env", default="OPENAI_API_KEY")
@@ -70,6 +71,7 @@ def main(argv=None) -> dict:
     p.add_argument("--label", default=None, help="name for the llm run in tables and file names")
     p.add_argument("--injection", default="none", choices=["none", "paired", "only"],
                    help="paired: run clean and injected; only: injected runs alone")
+    p.add_argument("--attack-set", default="dev", choices=["dev", "heldout"])
     p.add_argument("--out", default="results")
     args = p.parse_args(argv)
 
@@ -88,7 +90,7 @@ def main(argv=None) -> dict:
             scores = []
             with open(out_dir / f"{stem}.jsonl", "w", encoding="utf-8") as fh:
                 for task in tasks:
-                    injection = assign_injection(task.task_id) if inject else None
+                    injection = assign_injection(task.task_id, attack_set=args.attack_set) if inject else None
                     for r in range(args.rollouts):
                         ep = run_episode(task, agent, policy, seed=args.seed + r, max_turns=args.max_turns,
                                          injection=injection)

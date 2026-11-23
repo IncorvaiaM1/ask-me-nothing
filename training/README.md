@@ -1,22 +1,21 @@
 # training
 
-Planned multi-turn GRPO with LoRA on Qwen3-1.7B, with Qwen3-0.6B for smoke tests. Owner: RL workstream. No trainer is implemented yet.
+Multi-turn GRPO with LoRA on Qwen3-1.7B (Qwen3-0.6B for smoke tests, Qwen3-4B for the size check). The full run order is in `docs/RUNBOOK.md`.
 
-- **Library:** OpenPipe ART, verifiers, or verl; choose during the pilot by Nov 15 after checking multi-turn rollout and assistant-token masking support on PACE-ICE.
-- **Model:** check the base model's license before releasing adapters (Qwen3 is Apache 2.0; some Qwen2.5 sizes are research-only).
-- **Curriculum:** fully specified tasks first, then underspecified.
-- **Seeds:** 0, 1, 2 for every reported run.
-- **Compute log:** record GPU type and hours per run here; the paper needs a compute statement.
-- **Comparison:** initialize SFT+GRPO from the same distilled checkpoint used by the SFT baseline. Group complete dialogues for the same task and update assistant tokens only.
-- **Core budget:** main method plus privacy-cost-off and question-cost-off ablations, each over three seeds. At an unmeasured 5-10 GPU-hours/run this is 45-90 GPU-hours, excluding SFT and evaluation. Profile first; shrink to 0.6B if needed. Thinking/tool-removal diagnostics are optional.
+## Pieces
 
-## What exists
+- `sft.py`: supervised warm start on the scripted over-asking teacher (`always_ask`), successful and finished dialogues only, cross-entropy on assistant tokens.
+- `grpo_train.py`: the RL loop. One process holds an in-process vLLM engine for rollouts and the Hugging Face model being trained; after each update the adapter is saved and vLLM switches to it. Resumable with `--resume`.
+- `batch_rollout.py`: every active dialogue's next turn in one `generate` call; the model's reply is kept verbatim as the assistant message.
+- `config.py`: reward arms. `tiered` (the method), `flat` (uniform cost matched to tiered on the teacher's collection), `shuffled` (tier costs on the wrong fields; the control showing the model learns which data is sensitive), `no_collection_cost`; `sample_steerable` for the cost-conditioned variant.
+- `masking.py`: token ids, assistant-only loss mask and per-token turn index, built turn by turn so each reply follows the prompt the model actually saw (Qwen3's template drops the empty think block from past turns). Verified on the real tokenizer on Nov 17.
+- `grpo.py`: on-policy GRPO loss with per-dialogue or per-token advantages. Verified on PACE on Nov 17.
+- `rollouts.py`, `collect.py`: the earlier HTTP-based rollout harness, kept for dry runs.
 
-- `rollouts.py`, `collect.py`: grouped rollouts (same task, same price path), one scalar reward per dialogue, group-normalized advantages, written as JSONL of chat messages. `--agent mixed` is a no-model dry run.
-- `masking.py`: token ids plus a loss mask covering only assistant tokens, derived from the tokenizer's own chat template. Tested on a stand-in tokenizer; run `describe_mask` on the real Qwen3 tokenizer in the pilot.
-- `grpo.py`: reference on-policy loss. Never executed; it states what the chosen library must compute.
-- `config.py`: reward weights for the main method and the two ablations.
+## Conventions
 
-Whichever library is chosen only has to consume the JSONL (messages and advantage) or call `collect_group` as its rollout function.
+- Seeds 0, 1 and 2 for every reported run; same SFT initialization for every arm.
+- Record GPU type and hours per run (the paper needs a compute statement). Nov 17: one H100 80GB; LoRA step about 13,450 tokens/s on 1.7B, 18 GB peak at batch size 1.
+- Qwen3 is Apache 2.0; check the base model's license before releasing adapters.
 
-`pace/prompted_baseline.sh` runs the prompted baseline inside an interactive GPU session. `pace/smoke_test.sbatch` checks that a GPU job runs and torch sees CUDA.
+`pace/` holds the scripts that run all of this inside an interactive GPU session.

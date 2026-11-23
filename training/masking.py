@@ -77,6 +77,14 @@ def _common_prefix(a: list[int], b: list[int]) -> int:
 
 def assistant_mask(tokenizer, messages: list[dict], tools: list[dict] | None = None,
                    max_length: int | None = None, **template_kwargs) -> tuple[list[int], list[int]]:
+    ids, turns = assistant_turns(tokenizer, messages, tools, max_length, **template_kwargs)
+    return ids, [int(t >= 0) for t in turns]
+
+
+def assistant_turns(tokenizer, messages: list[dict], tools: list[dict] | None = None,
+                    max_length: int | None = None, **template_kwargs) -> tuple[list[int], list[int]]:
+    """Like ``assistant_mask``, but each model-produced token carries the index of its
+    assistant turn (0, 1, ...) and every other token carries -1."""
     """Return ``(input_ids, loss_mask)``; ``loss_mask[t]`` is 1 where token ``t`` was produced by the model.
 
     Raises ``ValueError`` if past turns do not render the same way from one prompt to
@@ -101,7 +109,7 @@ def assistant_mask(tokenizer, messages: list[dict], tools: list[dict] | None = N
     input_ids: list[int] = []
     mask: list[int] = []
     prev_end, prev_past = 0, []
-    for i in turns:
+    for k, i in enumerate(turns):
         prompt = _render(tokenizer, messages[:i], tools, True, template_kwargs)
         rendered = past(i + 1)
         end = len(rendered) - dummy_len                    # just past this turn's end-of-turn tokens
@@ -117,7 +125,7 @@ def assistant_mask(tokenizer, messages: list[dict], tools: list[dict] | None = N
         reply = rendered[start:end]
         new_context = prompt[prev_end:]
         input_ids += new_context + reply
-        mask += [0] * len(new_context) + [1] * len(reply)
+        mask += [-1] * len(new_context) + [k] * len(reply)
         prev_end, prev_past = end, rendered
     if max_length is not None and len(input_ids) > max_length:
         raise ValueError(f"dialogue is {len(input_ids)} tokens, over max_length={max_length}")

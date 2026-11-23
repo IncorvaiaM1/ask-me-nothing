@@ -32,15 +32,13 @@ Test whether multi-turn RL with question costs and sensitivity-weighted unnecess
 - FINRA Rule 2111 motivates investment-profile checks where applicable; section .08 excludes recommendations subject to Regulation Best Interest.
 - SEC Regulation S-P (2024 amendments) motivates safeguarding customer information and incident response. The synthetic desk policy does not establish real-world compliance.
 
-## Implementation and experiment scope
+## BrokerDesk v1 (November 23) and experiment scope
 
-- Implemented (Nov 16): minimal BrokerDesk for the two core families: task generator and splits, scripted client, per-order policy checks, end-state checker, tool schemas, reward and metrics, scripted reference agents, prompted-baseline runner, injected tool outputs with paired clean/injected evaluation, grouped rollouts with advantages and an assistant-only token mask, 31 tests. Not implemented: LLM clients, AirGap-style minimizer, SFT, the trainer itself (library still to choose; mask and loss unverified on the real tokenizer and GPU), the goal-aware shortfall reference (shortfall is currently against arrival prices), margin lending.
-- Core tasks: cash-raising and rebalancing. Hedging and tax-aware trimming are extensions.
-- Data: approximately 300 training, 50 validation, and 100 test tasks, separating clients, seeds, and goal/portfolio combinations. No tuning on test tasks.
-- Structured field requests support deterministic scoring. Mandatory means required and still missing; information already obtained is redundant. Repeated unnecessary requests incur repeated costs.
-- Train SFT+GRPO from the same distilled checkpoint as the SFT baseline. Score complete dialogues; mask user/tool tokens from training updates.
-- Core ablations: privacy cost off and question cost off. Thinking on/off and tool removal are optional diagnostics, not required extra training runs.
-- Three seeds for each of three core configurations means nine runs: an unmeasured 45-90 GPU-hour estimate at 5-10 hours per run, plus SFT/evaluation. Profile 0.6B by Nov 15 and choose/pin the RL stack then.
-- Five test rollouts per task support pass^1/pass^3; use paired task-bootstrap intervals and report training-seed variability separately. See `../eval/README.md` for metric definitions.
-- Existing `find_leaks` only matches markers and exempts the allowed client's low-tier fields. The environment must route only outbound messages through the check and implement the desk's recipient/field authorization policy. It cannot detect paraphrases.
-- API cap, exact model versions, queue availability, and dependency lockfile are still pending. Set the cap before API generation and log actual spend.
+- Families: cash raising, rebalancing and tax-aware cash raising, 300/60/120 train/validation/test tasks plus `test_paraphrase` (held-out wording) and `test_unseen` (wire transfers, never trained on). Sixty percent of tasks need at least one question.
+- The tax bracket is the key field: sensitive, needed in tax-aware tasks (stated, on file, or client-only), irrelevant everywhere else. Without it, every penalty would teach the same thing and the tiered-versus-flat comparison could show nothing.
+- `size_orders` computes compliant orders from goal parameters. It removes the share arithmetic the fine-tuned model failed at, and it trusts its inputs, so guessed information still fails the task.
+- Arms: tiered, flat (matched expected penalty), shuffled tiers, no collection cost; three seeds for the first three. Extensions: cost-conditioned steerability, turn-level credit assignment, Qwen3-4B.
+- Metrics: success; secure success (also no leak, no successful attack); required-field recall; unneeded requests by field and by tier; pass^1 and pass^3 on five rollouts; task-bootstrap intervals.
+- Robustness and transfer: held-out wording, nine held-out attacks, four LLM-client personas with a reply audit, the unseen wire family, τ²-bench retail, airline and intake with a local user simulator.
+- Leak checks: canary markers plus raw values (digits normalized), so a policy cannot hide a leak by dropping the marker.
+- Not built: AirGap-style minimizer, frontier-model reference (needs an API budget decision), margin rules.

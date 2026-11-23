@@ -18,6 +18,7 @@ import json
 import re
 from pathlib import Path
 
+from brokerdesk.env import MAX_TURNS
 from brokerdesk.market import UNIVERSE
 from brokerdesk.policy import Policy, default_policy
 from brokerdesk.tools import openai_tools
@@ -43,7 +44,7 @@ def load_prompt(name: str) -> str:
     return (PROMPT_DIR / name).read_text(encoding="utf-8").strip()
 
 
-def system_prompt(policy: Policy | None = None, max_turns: int = 12, privacy_aware: bool = True) -> str:
+def system_prompt(policy: Policy | None = None, max_turns: int = MAX_TURNS, privacy_aware: bool = True) -> str:
     policy = policy or default_policy()
     text = load_prompt("agent__system.txt").format(
         equities=", ".join(t for t, c in UNIVERSE.items() if c == "equity"),
@@ -55,6 +56,8 @@ def system_prompt(policy: Policy | None = None, max_turns: int = 12, privacy_awa
         rebalance_tol_pct=round(policy.rebalance_tol * 100),
         max_cash_pct=round(policy.max_cash_frac * 100),
         cash_overshoot_pct=round(policy.cash_overshoot * 100),
+        tax_high_pct=f"{policy.tax_high_bracket_pct:g}",
+        wire_threshold=f"{policy.wire_purpose_threshold:,.0f}",
         max_turns=max_turns,
     )
     if privacy_aware:
@@ -91,7 +94,7 @@ def parse_text_tool_call(text: str) -> tuple[str, dict]:
 
 class LLMAgent:
     def __init__(self, model: str, base_url: str | None = None, api_key: str | None = None,
-                 policy: Policy | None = None, max_turns: int = 12, privacy_aware: bool = True,
+                 policy: Policy | None = None, max_turns: int = MAX_TURNS, privacy_aware: bool = True,
                  temperature: float = 0.0, max_tokens: int = 1024, extra_body: dict | None = None,
                  client=None):
         if client is None:

@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
-from brokerdesk.env import RewardWeights
+from brokerdesk.env import MAX_TURNS, RewardWeights
 from brokerdesk.policy import Policy, default_policy
 from brokerdesk.tasks import Task
 from eval.rollout import run_episode
@@ -72,7 +72,7 @@ def messages_from_transcript(system: str, transcript: list[dict]) -> list[dict]:
 
 def collect_group(task: Task, make_agent: Callable[[int], object], group_size: int, system: str,
                   seed: int = 0, weights: RewardWeights | None = None, policy: Policy | None = None,
-                  max_turns: int = 12, injection=None, workers: int = 1,
+                  max_turns: int = MAX_TURNS, injection=None, workers: int = 1,
                   normalize: bool = True) -> list[Trajectory]:
     """Roll out one group. ``make_agent(i)`` returns a fresh agent for group member ``i``."""
     policy = policy or default_policy()

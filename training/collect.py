@@ -23,6 +23,7 @@ from pathlib import Path
 
 from baselines.prompted import system_prompt
 from baselines.scripted import HeuristicAgent
+from brokerdesk.env import MAX_TURNS
 from brokerdesk.policy import default_policy
 from brokerdesk.tasks import SPLITS, generate_tasks
 from training.config import REWARD_CONFIGS
@@ -42,7 +43,7 @@ def main(argv=None) -> dict:
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--reward", default="full", choices=sorted(REWARD_CONFIGS))
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-turns", type=int, default=12)
+    p.add_argument("--max-turns", type=int, default=MAX_TURNS)
     p.add_argument("--workers", type=int, default=1, help="concurrent rollouts inside a group")
     p.add_argument("--model", default=None)
     p.add_argument("--base-url", default=None)
@@ -53,9 +54,10 @@ def main(argv=None) -> dict:
     args = p.parse_args(argv)
 
     policy = default_policy()
-    count, split_seed = SPLITS[args.split]
+    count, split_seed, held_out = SPLITS[args.split]
     frac = {} if args.underspecified_frac is None else {"underspecified_frac": args.underspecified_frac}
-    tasks = generate_tasks(count, split_seed, policy=policy, **frac)[args.offset: args.offset + args.n]
+    tasks = generate_tasks(count, split_seed, policy=policy, held_out_wording=held_out,
+                           **frac)[args.offset: args.offset + args.n]
     system = system_prompt(policy, args.max_turns)
 
     if args.agent == "llm":

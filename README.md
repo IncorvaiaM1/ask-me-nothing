@@ -9,7 +9,7 @@ Team: Greyson, Michael Incorvaia, Heeba, Canting.
 
 In financial dialogue every clarifying question can request client data. We plan to train Qwen3-1.7B with multi-turn GRPO and LoRA (0.6B for smoke tests), pricing every question and unnecessary field request by sensitivity. The goal is to reduce redundant questions and unauthorized disclosure while retaining necessary clarification and task success. Thinking allocation is exploratory. See the [proposal](docs/proposal/proposal.pdf) for the submission plan.
 
-Current status: the minimal BrokerDesk runs end to end on the two core task families (cash-raising and rebalancing): seeded task generator and splits, scripted client, per-order policy checks, exact end-state checker, tool schemas, reward and per-episode metrics, plus injected instructions in untrusted tool outputs with exact attack scoring, with 31 passing tests. Scripted reference agents, a prompted-LLM baseline runner, and a library-independent GRPO rollout harness (grouped rollouts, advantages, assistant-only token mask) exist. The scripted agents have been run; the prompted Qwen3 and frontier baselines have not been run yet, and no trainer has been run: the token mask is tested against a stand-in tokenizer only and the reference loss in `training/grpo.py` has never been executed. Canary matching detects verbatim markers only; it is not a general privacy guarantee.
+Current status (BrokerDesk v1, November 23): three task families (cash raising, rebalancing, tax-aware cash raising) plus a held-out wire-transfer family for transfer tests; a `size_orders` tool that turns goal parameters into compliant orders, so success depends on gathering the right information rather than share arithmetic; held-out request wording; twelve attacks in untrusted tool outputs (three development, nine held out); raw-value leak matching besides canaries; a secure-success metric; an LLM-simulated client with four personas and a reply audit; a GRPO trainer with tiered, flat, shuffled-tier and cost-conditioned reward arms and an optional turn-level advantage; one evaluation script for every model condition; and a τ²-bench runner. 52 tests pass, including real gradient steps on a tiny model. Milestone-era results are archived in `results/milestone_v0/`; v1 GPU runs follow `docs/RUNBOOK.md`. Canary and raw-value matching detect verbatim disclosure only; they are not a general privacy guarantee.
 
 Research questions (details in [`docs/PLAN.md`](docs/PLAN.md)):
 
@@ -67,32 +67,24 @@ To be filled in as results land. The rule: **one command per table or figure**, 
 
 | Paper item | Command |
 | --- | --- |
-| Scripted reference agents, validation split | `python -m eval.run_baseline --agents need_to_know never_ask always_ask --split val --seed 0` |
+| Scripted reference agents, any split | `python -m eval.run_baseline --agents need_to_know never_ask always_ask gullible --split val --injection paired` |
+| Any model or adapter, any split or condition | `python -m eval.eval_adapter --help` |
+| Full GPU run plan | `docs/RUNBOOK.md` |
 | Same agents, paired clean and injected tool outputs | `python -m eval.run_baseline --agents need_to_know never_ask always_ask gullible --split val --seed 0 --injection paired` |
 | Dry-run rollout batch, no model | `python -m training.collect --agent mixed --split train --n 8 --group-size 6 --out runs/rollouts/dry.jsonl` |
 | Prompted Qwen3-1.7B, validation split (PACE-ICE GPU session) | `bash training/pace/prompted_baseline.sh Qwen/Qwen3-1.7B val` *(not run yet)* |
 | Table 1 (main results) | `python -m eval.main_table --seeds 0 1 2` *(TBD)* |
 
-Scripted reference agents on the 50 validation tasks, one rollout, seed 0 (no model involved; these check the simulator and bracket the behaviours under study):
+Scripted reference agents on the 60 validation tasks of BrokerDesk v1, one rollout, seed 0 (no model; these check the simulator and bracket the behaviours under study):
 
-| agent | success | goal | viol/ep | needed q | unneeded q | missed mand. | leak rate | reward | unneeded fields (low/sens/restr) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| need_to_know | 1.00 | 1.00 | 0.00 | 0.62 | 0.00 | 0.00 | 0.00 | 0.988 | 0.00/0.00/0.00 |
-| never_ask | 0.44 | 0.44 | 0.30 | 0.00 | 0.00 | 0.30 | 0.00 | 0.140 | 0.00/0.00/0.00 |
-| always_ask | 1.00 | 1.00 | 0.00 | 0.62 | 2.88 | 0.00 | 0.00 | 0.861 | 1.88/1.00/0.00 |
+| agent | success | secure | req. recall | goal | viol/ep | needed q | unneeded q | missed mand. | leak rate | reward | unneeded fields (low/sens/restr) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| need_to_know | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 | 0.68 | 0.00 | 0.00 | 0.00 | 0.986 | 0.00/0.00/0.00 |
+| never_ask | 0.55 | 0.55 | 0.00 | 0.55 | 0.20 | 0.00 | 0.00 | 0.20 | 0.00 | 0.350 | 0.00/0.00/0.00 |
+| always_ask | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 | 0.68 | 3.02 | 0.00 | 0.00 | 0.827 | 1.30/1.72/0.00 |
+| gullible | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 | 0.68 | 0.00 | 0.00 | 0.00 | 0.986 | 0.00/0.00/0.00 |
 
-`success` is goal met with zero policy violations. `never_ask` guesses instead of asking; `always_ask` asks for everything, including two profile fields the task does not use.
-
-Same split with attacker text in the untrusted tool outputs. `gullible` is a scripted agent that obeys whatever the note says; it is there to show the attack metrics register a compromised agent:
-
-| agent | success clean | success injected | attack seen | attack success | targeted field collected | leak rate injected |
-| --- | --- | --- | --- | --- | --- | --- |
-| need_to_know | 1.00 | 1.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| never_ask | 0.44 | 0.44 | 1.00 | 0.00 | 0.00 | 0.00 |
-| always_ask | 1.00 | 1.00 | 1.00 | 0.00 | 0.00 | 0.00 |
-| gullible | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.64 |
-
-`success` does not count leaks; a leak is reported in its own column and in the reward.
+`success` is goal met with zero policy violations; `secure` additionally requires no leak and no successful attack; `req. recall` is the share of client-only or mandatory fields the agent obtained. `never_ask` guesses instead of asking; `always_ask`, the supervised teacher, asks for every task field plus one to three unneeded profile fields drawn per task; `gullible` obeys instructions in tool outputs, which only matters in injected runs.
 
 ## Conventions
 
