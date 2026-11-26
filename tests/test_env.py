@@ -399,3 +399,17 @@ def test_guessing_that_nothing_is_protected_always_sells_the_protected_holding()
             assert any(o["ticker"] == t.hidden_goal["keep"][0] for o in orders), t.task_id
             checked += 1
     assert checked > 50
+
+
+def test_invalid_calls_cost_reward_and_are_charged_to_their_turn():
+    policy = default_policy()
+    task = next(t for t in load_split("val", policy) if t.family == "rebalance")
+    env = BrokerDeskEnv(task, policy, seed=0)
+    env.reset()
+    env.step("invalid", {})
+    env.step("get_quote", {"nope": 1})
+    env.step("finish", {"message": "done"})
+    s = env.score()
+    assert s["invalid_calls"] == 2
+    assert s["turn_costs"]["1"] >= 0.05 and s["turn_costs"]["2"] >= 0.05
+    assert s["reward"] <= float(s["goal_met"]) - 0.1 + 1e-9

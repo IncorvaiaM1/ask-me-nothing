@@ -33,6 +33,11 @@ validates every 5 steps, and evaluates `best/` (highest validation reward) inste
 
     mv runs/grpo/tiered-Qwen3-1.7B-s0 runs/grpo/v1.0-nokl-tiered-Qwen3-1.7B-s0
 
+v1.2 (Nov 26): invalid tool calls now cost 0.05 each in every arm, and the raw text of each
+invalid turn is kept in the transcript (`raw`). The first v1.1 tiered run drifted from 0 to
+1.5 invalid calls per episode by step 30 and lost 15 points of success; its directory is
+`runs/grpo/v1.1-noinvalidcost-tiered-Qwen3-1.7B-s0`.
+
 Watch `kl` in the training lines and `required_recall` in the eval lines of `log.jsonl`;
 recall should stay near 1.0. If it falls below 0.9 at any eval, stop and send the log.
 

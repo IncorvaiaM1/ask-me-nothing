@@ -91,8 +91,10 @@ def run_jobs(engine, jobs: list[Job], policy: Policy | None = None, max_turns: i
             msgs[i].append({"role": "assistant", "content": strip_thinking(text)})
             obs, done[i] = envs[i].step(tool, args)
             msgs[i].append({"role": "tool", "content": obs})
-            transcripts[i] += [{"role": "agent", "tool": tool, "arguments": args},
-                               {"role": "tool", "content": obs}]
+            entry = {"role": "agent", "tool": tool, "arguments": args}
+            if obs.startswith('{"error"'):
+                entry["raw"] = text[:2000]          # what the model actually wrote
+            transcripts[i] += [entry, {"role": "tool", "content": obs}]
     return [Episode(job=j, messages=m, transcript=t, score=e.score())
             for j, m, t, e in zip(jobs, msgs, transcripts, envs)]
 
