@@ -25,6 +25,17 @@ Read before going on:
 
 ## Block 2: the central comparison (9 runs; about 1 hour each at 60 steps)
 
+v1.1 (Nov 26): GRPO now has a KL penalty to the SFT adapter (`--kl-beta 0.04`, default),
+validates every 5 steps, and evaluates `best/` (highest validation reward) instead of
+`final/`. The first tiered seed-0 run, without KL, collapsed; see
+`results/v1.0_nokl_collapse/README.md`. Before rerunning, move its directory aside or
+`--resume` will pick it up at step 60:
+
+    mv runs/grpo/tiered-Qwen3-1.7B-s0 runs/grpo/v1.0-nokl-tiered-Qwen3-1.7B-s0
+
+Watch `kl` in the training lines and `required_recall` in the eval lines of `log.jsonl`;
+recall should stay near 1.0. If it falls below 0.9 at any eval, stop and send the log.
+
     for seed in 0 1 2; do
       for arm in tiered flat shuffled; do
         bash training/pace/grpo_run.sh $arm $seed
@@ -40,7 +51,7 @@ GPU; they are independent.
     bash training/pace/grpo_run.sh no_collection_cost 0
     bash training/pace/grpo_run.sh turn 0                 # turn-level credit assignment
     bash training/pace/grpo_run.sh steerable 0            # costs in the prompt
-    bash training/pace/steer_eval.sh runs/grpo/steerable-Qwen3-1.7B-s0/final steer-s0
+    bash training/pace/steer_eval.sh runs/grpo/steerable-Qwen3-1.7B-s0/best steer-s0
     MODEL=Qwen/Qwen3-4B bash training/pace/v1_pipeline.sh 4          # 4B warm start + pilot
     MODEL=Qwen/Qwen3-4B bash training/pace/grpo_run.sh tiered 0
 
@@ -50,14 +61,14 @@ For the prompted base model, the SFT model, and the seed-0 tiered, flat and shuf
 
     bash training/pace/final_eval.sh qwen-prompted
     bash training/pace/final_eval.sh sft checkpoints/sft-v1-Qwen3-1.7B
-    bash training/pace/final_eval.sh tiered-s0 runs/grpo/tiered-Qwen3-1.7B-s0/final
+    bash training/pace/final_eval.sh tiered-s0 runs/grpo/tiered-Qwen3-1.7B-s0/best
     ...
 
 This covers held-out wording, held-out attacks, the unseen wire family and four LLM
 client personas with the drift audit.
 
     bash training/pace/tau2_eval.sh base
-    bash training/pace/tau2_eval.sh tiered-s0 runs/grpo/tiered-Qwen3-1.7B-s0/final
+    bash training/pace/tau2_eval.sh tiered-s0 runs/grpo/tiered-Qwen3-1.7B-s0/best
 
 τ²-bench retail and airline test splits plus intake (τ-Entity, scaffolded text), with a
 local Qwen3-8B user simulator.

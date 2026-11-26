@@ -2,7 +2,7 @@
 # Steerability: evaluate a cost-conditioned adapter at cost settings it saw in training
 # and at settings outside its training range. Inside a GPU session, repo root:
 #
-#     bash training/pace/steer_eval.sh runs/grpo/steerable-Qwen3-1.7B-s0/final steer-s0
+#     bash training/pace/steer_eval.sh runs/grpo/steerable-Qwen3-1.7B-s0/best steer-s0
 set -euo pipefail
 ADAPTER="${1:?adapter}"; LABEL="${2:?label}"
 MODEL="${MODEL:-Qwen/Qwen3-1.7B}"

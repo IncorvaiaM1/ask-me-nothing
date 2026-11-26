@@ -97,25 +97,56 @@ def build_batch(tokenizer, episodes: list[Episode], mode: str = "dialogue", max_
     return batch, skipped
 
 
-def train_step(model, optimizer, batch, device, clip: float = 1.0) -> dict:
-    """One optimizer step over the batch, one dialogue at a time (gradient accumulation)."""
+REF_ADAPTER = "ref"
+
+
+def train_step(model, optimizer, batch, device, clip: float = 1.0, kl_beta: float = 0.0) -> dict:
+    """One optimizer step over the batch, one dialogue at a time (gradient accumulation).
+
+    With ``kl_beta`` > 0 the model must carry a frozen adapter named ``ref`` (the SFT
+    init, see ``add_reference``); its log-probabilities anchor the policy.
+    """
     import torch
 
-    from training.grpo import grpo_loss
+    from training.grpo import grpo_loss, token_logps
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer.zero_grad(set_to_none=True)
-    total, tokens = 0.0, 0
+    total, tokens, kl_sum = 0.0, 0, 0.0
     for ids, mask, adv in batch:
         x = torch.tensor([ids], device=device)
-        loss = grpo_loss(model(input_ids=x).logits, x, torch.tensor([mask], device=device),
-                         torch.tensor([adv], device=device)) / len(batch)
-        loss.backward()
-        total += loss.item()
+        ref = None
+        if kl_beta:
+            with torch.no_grad():
+                model.set_adapter(REF_ADAPTER)
+                ref = token_logps(model(input_ids=x).logits, x)
+                model.set_adapter("default")
+        loss, kl = grpo_loss(model(input_ids=x).logits, x, torch.tensor([mask], device=device),
+                             torch.tensor([adv], device=device), ref_logp=ref, beta=kl_beta, return_kl=True)
+        (loss / len(batch)).backward()
+        total += loss.item() / len(batch)
+        kl_sum += kl.item() / len(batch)
         tokens += len(ids)
     grad_norm = float(torch.nn.utils.clip_grad_norm_(params, clip)) if batch else 0.0
     if batch:
         optimizer.step()
-    return {"loss": total, "tokens": tokens, "dialogues": len(batch), "grad_norm": grad_norm}
+    return {"loss": total, "kl": kl_sum, "tokens": tokens, "dialogues": len(batch), "grad_norm": grad_norm}
+
+
+def add_reference(model, adapter_path: str) -> None:
+    """Load ``adapter_path`` as a frozen second adapter named ``ref``."""
+    model.load_adapter(adapter_path, adapter_name=REF_ADAPTER, is_trainable=False)
+    model.set_adapter("default")
+    for n, p in model.named_parameters():
+        if f".{REF_ADAPTER}." in n:
+            p.requires_grad_(False)
+
+
+def selection_score(stats: dict) -> float:
+    """Validation score used to pick the checkpoint that gets evaluated on test.
+
+    Mean reward under the run's own arm, so every arm is selected by its own objective.
+    """
+    return stats["reward"]
 
 
 # ------------------------------------------------------------------ jobs
@@ -163,7 +194,8 @@ def main(argv=None) -> None:
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--lr", type=float, default=2e-5)
-    p.add_argument("--eval-every", type=int, default=10)
+    p.add_argument("--eval-every", type=int, default=5)
+    p.add_argument("--kl-beta", type=float, default=0.04, help="KL penalty to the SFT init; 0 turns it off")
     p.add_argument("--eval-n", type=int, default=60, help="validation tasks per evaluation")
     p.add_argument("--gpu-mem", type=float, default=0.45, help="vLLM share of GPU memory")
     p.add_argument("--out", required=True)
@@ -199,9 +231,13 @@ def main(argv=None) -> None:
     tok = AutoTokenizer.from_pretrained(args.model)
     base = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16).cuda()
     model = PeftModel.from_pretrained(base, adapter, is_trainable=True)
+    if args.kl_beta:
+        add_reference(model, args.init_adapter)
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
     optimizer = torch.optim.AdamW([q for q in model.parameters() if q.requires_grad], lr=args.lr)
+    best_path = out / "best.json"
+    best = json.loads(best_path.read_text()) if best_path.exists() else {"score": float("-inf")}
 
     def evaluate(step: int) -> None:
         weights = REWARD_CONFIGS["tiered" if args.steerable else args.arm]
@@ -212,6 +248,11 @@ def main(argv=None) -> None:
         print(json.dumps(row))
         with open(log_path, "a") as fh:
             fh.write(json.dumps(row) + "\n")
+        score = selection_score(row["eval"])
+        if step > 0 and score > best["score"]:
+            best.update(score=score, step=step)
+            model.save_pretrained(out / "best", selected_adapters=["default"])
+            best_path.write_text(json.dumps(best))
 
     if start == 0:
         evaluate(0)
@@ -225,9 +266,9 @@ def main(argv=None) -> None:
         compute_advantages(episodes, args.advantage)
         batch, skipped = build_batch(tok, episodes, args.advantage)
         model.train()
-        upd = train_step(model, optimizer, batch, "cuda")
+        upd = train_step(model, optimizer, batch, "cuda", kl_beta=args.kl_beta)
         path = out / f"step_{step:04d}"
-        model.save_pretrained(path)
+        model.save_pretrained(path, selected_adapters=["default"])
         engine.set_adapter(str(path))
         row = {"step": step, "train": episode_stats(episodes), "update": upd, "skipped": skipped,
                "seconds_rollout": round(t_roll, 1), "seconds_total": round(time.time() - t0, 1)}
@@ -243,8 +284,10 @@ def main(argv=None) -> None:
             old.rmdir()
         if step % args.eval_every == 0 or step == args.steps:
             evaluate(step)
-    model.save_pretrained(out / "final")
-    print(f"done; adapter in {out / 'final'}, log in {log_path}")
+    model.save_pretrained(out / "final", selected_adapters=["default"])
+    if not (out / "best").exists():
+        model.save_pretrained(out / "best", selected_adapters=["default"])
+    print(f"done; adapter in {out / 'final'}, best on validation in {out / 'best'} {best}, log in {log_path}")
 
 
 if __name__ == "__main__":

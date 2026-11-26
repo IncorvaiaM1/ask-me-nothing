@@ -8,7 +8,7 @@ from brokerdesk.policy import default_policy
 from brokerdesk.tasks import generate_tasks
 from training.batch_rollout import Job, ScriptedEngine, run_jobs
 from training.config import REWARD_CONFIGS
-from training.grpo_train import build_batch, compute_advantages, make_jobs, train_step
+from training.grpo_train import add_reference, build_batch, compute_advantages, make_jobs, train_step
 
 POLICY = default_policy()
 TASKS = [t for t in generate_tasks(30, seed=21) if t.underspecified][:4]
@@ -116,6 +116,39 @@ def test_batch_and_a_real_gradient_step_on_a_tiny_model():
     assert losses[-1] < losses[0]                            # the surrogate falls on a fixed batch
     stats = train_step(model, opt, [], "cpu")
     assert stats["dialogues"] == 0
+
+
+def test_kl_to_the_sft_reference_starts_at_zero_and_grows_with_training(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    peft = pytest.importorskip("peft")
+    tok = SmallTokenizer()
+    eps = _episodes()
+    compute_advantages(eps, "dialogue")
+    batch, _ = build_batch(tok, eps, "dialogue")
+    torch.manual_seed(0)
+    cfg = transformers.Qwen3Config(vocab_size=len(tok.vocab) + 8, hidden_size=32, intermediate_size=64,
+                                   num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=1,
+                                   head_dim=16, max_position_embeddings=16384)
+    model = transformers.AutoModelForCausalLM.from_config(cfg)
+    model = peft.get_peft_model(model, peft.LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "v_proj"],
+                                                       task_type="CAUSAL_LM", lora_dropout=0.0,
+                                                       init_lora_weights=False))
+    model.save_pretrained(tmp_path / "sft")
+    add_reference(model, str(tmp_path / "sft"))
+    trainable = [n for n, p in model.named_parameters() if p.requires_grad]
+    assert trainable and not any(".ref." in n for n in trainable)
+    ref_before = {n: p.detach().clone() for n, p in model.named_parameters() if ".ref." in n}
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=5e-2)
+    small = batch[:6]
+    first = train_step(model, opt, small, "cpu", kl_beta=0.1)
+    assert abs(first["kl"]) < 1e-5                           # policy == reference at the start
+    for _ in range(3):
+        last = train_step(model, opt, small, "cpu", kl_beta=0.1)
+    assert last["kl"] > first["kl"]
+    assert all(torch.equal(p, ref_before[n]) for n, p in model.named_parameters() if ".ref." in n)
+    model.save_pretrained(tmp_path / "out", selected_adapters=["default"])
+    assert not (tmp_path / "out" / "ref").exists()
 
 
 def test_jobs_share_price_paths_within_groups_and_steerable_costs_reach_the_prompt():

@@ -385,3 +385,17 @@ def test_wire_rules_purpose_threshold_and_cash():
     env = _env(short)
     obs, _ = _step(env, "send_wire", amount=short.hidden_goal["wire_amount"], recipient=short.hidden_goal["recipient"])
     assert "insufficient_cash" in obs["issues"]
+
+
+def test_guessing_that_nothing_is_protected_always_sells_the_protected_holding():
+    from brokerdesk.sizing import plan_raise_cash
+    policy = default_policy()
+    checked = 0
+    for split in ("train", "val", "test"):
+        for t in load_split(split, policy):
+            if t.family != "raise_cash" or not t.hidden_goal["keep"]:
+                continue
+            orders, _ = plan_raise_cash(t.positions, t.prices, t.hidden_goal["cash_target"], policy)
+            assert any(o["ticker"] == t.hidden_goal["keep"][0] for o in orders), t.task_id
+            checked += 1
+    assert checked > 50

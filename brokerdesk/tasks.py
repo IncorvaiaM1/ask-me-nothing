@@ -261,7 +261,10 @@ def _make_task(rng: random.Random, seed: int, index: int, family: str,
     if family == "raise_cash":
         positions, cash, prices, book, basis = _portfolio(rng, policy, rng.uniform(0.40, 0.80))
         amount = int(round(book * rng.uniform(0.05, 0.15), -3))
-        keep = rng.choice(sorted(positions))
+        rng.choice(sorted(positions))          # kept so the rest of the stream matches v1.0
+        # The protected holding is the one an unconstrained sale would hit first (the
+        # largest), so guessing that nothing is protected sells it and fails the task.
+        keep = max(sorted(positions), key=lambda t: positions[t] * prices[t])
         if underspecified:
             amount_mode, keep_mode = rng.choice(
                 [("missing", "none"), ("missing", "stated"), ("missing", "hinted"), ("stated", "hinted")])
